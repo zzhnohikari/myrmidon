@@ -33,7 +33,9 @@ sapper console --root ~/sapper-missions --port 8890    # 打开 http://127.0.0.1
 ### 1. 构建
 
 ```bash
-docker build -f docker/Dockerfile.console -t myrmidon-console:1.0.0 .
+# --platform 必须与客户机器架构一致：x86_64 云主机用 amd64，Apple/ARM 用 arm64
+docker build --platform linux/amd64 -f docker/Dockerfile.console -t myrmidon-console:1.0.0 .
+docker image inspect myrmidon-console:1.0.0 --format '{{.Os}}/{{.Architecture}}'
 ```
 
 ### 2. 导出 / 导入（离线交付）
@@ -85,10 +87,17 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8890/api/missions
 
 | 项 | 值 |
 |---|---|
-| image id | `sha256:22fe4dfea07e5929e0e350ed85f5640537452c27ae0c655170f532c241512488` |
-| 大小 | 425,921,687 字节 |
-| tar.gz | `myrmidon-console-1.0.0.tar.gz`（405MB） |
-| sha256 | `249d1c7472a8ec4c61a9cc03c76340aabea1e34d0106c2dff954b0b95f7ed25f` |
+| 平台 | **`linux/amd64`**（x86_64 云主机直接可用） |
+| image id | `sha256:001a24e3803cc84e739600d493cdc8ee15597fcfed997f1ce34f281554fe31bf` |
+| 大小 | 423,800,958 字节 |
+| tar.gz | `myrmidon-console-1.0.0-linux-amd64.tar.gz`（423,081,834 字节） |
+| sha256 | `c2b3da8d384271c9c97bf2f8a4192e34f430d7892af9a3d7c13764c06ad1e14f` |
+
+> 早前误打的 `linux/arm64` 包只适用于 Apple Silicon / ARM 服务器，`docker load` 到 x86_64 上会
+> `exec format error`，已从 Release 移除。ARM 环境请用 `--platform linux/arm64` 自行构建。
+
+**实测（腾讯云北京竞价 SA3.MEDIUM4 / Ubuntu 22.04）**：`docker load` 11s → 建账号 → `docker run` →
+容器 healthy、未登录 401、登录 200、建任务成功。
 
 ## 文档
 

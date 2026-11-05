@@ -31,8 +31,8 @@
 ```bash
 git clone https://github.com/zzhnohikari/myrmidon.git && cd myrmidon
 
-# 1) 构建控制台镜像（约 1.25GB）
-docker build -f docker/Dockerfile.console -t myrmidon-console:1.0.0 .
+# 1) 构建控制台镜像（约 1.25GB；--platform 要与客户机器架构一致）
+docker build --platform linux/amd64 -f docker/Dockerfile.console -t myrmidon-console:1.0.0 .
 
 # 2) 生成管理员账号
 mkdir -p ./data
