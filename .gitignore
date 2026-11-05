@@ -35,3 +35,6 @@ COMMANDER-HANDOVER.md
 !docs/使用手册.html
 # 旧版模板备份只留本地
 lib/view_template.v1-*.bak
+
+# 本地导出目录整体忽略（镜像 tar 与校验和）
+dist/
