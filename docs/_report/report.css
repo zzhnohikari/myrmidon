@@ -280,3 +280,27 @@ pre, .callout { page-break-inside: avoid; }
 .checklist ul { columns: 2; column-gap: 12mm; margin-top: 2mm; }
 .checklist li { break-inside: avoid; }
 .appendix-c { break-before: page; }
+
+/* 截图 */
+.doc figure {
+  margin: 2mm 0 4mm 0;
+  break-inside: avoid;
+}
+.doc figure img {
+  width: 78%;
+  margin: 0 auto;
+  height: auto;
+  display: block;
+  border: 1px solid #d7dee8;
+  border-radius: 3px;
+  background: #0b1120;
+}
+.doc figcaption {
+  margin-top: 1.4mm;
+  font-size: 8.6pt;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.chapter-ui { break-before: page; }
