@@ -30,8 +30,8 @@ docker info >/dev/null 2>&1 || die "docker 守护进程不可用（试试 system
 say "Docker: $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unknown)"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  TARBALL="$(ls -1 "$SCRIPT_DIR"/镜像/myrmidon-console-*-linux-amd64.tar.gz "$SCRIPT_DIR"/myrmidon-console-*-linux-amd64.tar.gz 2>/dev/null | head -1 || true)"
-  [[ -n "${TARBALL:-}" ]] || die "镜像 $IMAGE 不存在，且当前目录找不到 myrmidon-console-*-linux-amd64.tar.gz"
+  TARBALL="$(ls -1 "$SCRIPT_DIR"/镜像/myrmidon-console-*.tar.gz "$SCRIPT_DIR"/myrmidon-console-*.tar.gz 2>/dev/null | head -1 || true)"
+  [[ -n "${TARBALL:-}" ]] || die "镜像 $IMAGE 不存在，且包内找不到 镜像/myrmidon-console-*.tar.gz"
   say "导入镜像：${TARBALL}（约 400MB，首次约 10-30 秒）"
   docker load -i "$TARBALL"
 fi
