@@ -40,3 +40,6 @@ lib/view_template.v1-*.bak
 
 # 本地导出目录整体忽略（镜像 tar 与校验和）
 dist/
+
+# 本地归档包（评审/发送用，入库无意义）
+docs/*.zip
