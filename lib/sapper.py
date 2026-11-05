@@ -1508,6 +1508,9 @@ def _engine_error_detail(proc) -> str:
     err = (proc.stderr or "").strip()[:300]
     if err:
         detail = (detail + " / stderr: " + err) if detail else ("stderr: " + err)
+    if "dangerously-skip-permissions cannot be used with root" in detail:
+        detail += ("\n提示：claude 不允许 root 直接跳过权限。容器里镜像已设 IS_SANDBOX=1；"
+                   "裸机请用普通用户运行 console，或显式 export IS_SANDBOX=1（等于放弃这层保护）。")
     return detail or "(无输出)"
 
 

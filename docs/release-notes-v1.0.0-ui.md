@@ -88,16 +88,19 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8890/api/missions
 | 项 | 值 |
 |---|---|
 | 平台 | **`linux/amd64`**（x86_64 云主机直接可用） |
-| image id | `sha256:001a24e3803cc84e739600d493cdc8ee15597fcfed997f1ce34f281554fe31bf` |
-| 大小 | 423,800,958 字节 |
-| tar.gz | `myrmidon-console-1.0.0-linux-amd64.tar.gz`（423,081,834 字节） |
-| sha256 | `c2b3da8d384271c9c97bf2f8a4192e34f430d7892af9a3d7c13764c06ad1e14f` |
+| image id | `sha256:085ef36c175e7db9ffc043c3a1bfc586c54c81661d396fd92458844cce527a04` |
+| 大小 | 423,083,562 字节 |
+| tar.gz | `myrmidon-console-1.0.0-linux-amd64.tar.gz`（423,083,562 字节） |
+| sha256 | `57c8996a0cec087a78650b96a5fe2e69eb82eb7480c0062cc54931f70e31792f` |
 
 > 早前误打的 `linux/arm64` 包只适用于 Apple Silicon / ARM 服务器，`docker load` 到 x86_64 上会
 > `exec format error`，已从 Release 移除。ARM 环境请用 `--platform linux/arm64` 自行构建。
 
 **实测（腾讯云北京竞价 SA3.MEDIUM4 / Ubuntu 22.04）**：`docker load` 11s → 建账号 → `docker run` →
-容器 healthy、未登录 401、登录 200、建任务成功。
+容器 healthy、未登录 401、登录 200、建任务成功 → 真跑 Auto（DeepSeek）两轮推理、目标完成、5 条情报落库。
+
+> 镜像内置 `IS_SANDBOX=1`：以 root 运行时 claude CLI 默认拒绝 `--dangerously-skip-permissions`
+> （Auto 必需），没有这个开关 Auto 会每步失败。裸机以 root 跑 console 时需自行 `export IS_SANDBOX=1`。
 
 ## 文档
 
