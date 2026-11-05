@@ -1,0 +1,282 @@
+/* Myrmidon 交付报告 —— A4 打印优先 */
+@page {
+  size: A4;
+  margin: 17mm 16mm 16mm 16mm;
+}
+/* 封面满版出血：首页去掉页边距，由 .cover 自己控制内边距 */
+@page :first { margin: 0; }
+
+:root {
+  --navy: #0f2744;
+  --navy-2: #17395f;
+  --accent: #2563eb;
+  --ink: #1f2937;
+  --muted: #5b6676;
+  --line: #dbe2ea;
+  --tint: #f4f7fb;
+  --ok: #15803d;
+  --warn: #b45309;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 10.2pt;
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+}
+
+.doc { padding: 0; }
+.doc > *:first-child { margin-top: 0; }
+
+/* ---------- 封面 ---------- */
+.cover {
+  margin: 0;
+  padding: 30mm 20mm 24mm 20mm;
+  min-height: 297mm;
+  background: linear-gradient(160deg, #0b1d33 0%, #123255 52%, #1b4f7d 100%);
+  color: #eaf2fb;
+  display: flex;
+  flex-direction: column;
+  page-break-after: always;
+  position: relative;
+  overflow: hidden;
+}
+.cover::after {
+  content: "";
+  position: absolute;
+  right: -60mm; bottom: -80mm;
+  width: 190mm; height: 190mm;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(96,165,250,.22) 0%, rgba(96,165,250,0) 68%);
+}
+.cover-mark {
+  font-size: 10pt;
+  letter-spacing: .42em;
+  color: #7fb2e8;
+  font-weight: 600;
+  margin-bottom: 46mm;
+}
+.cover h1 {
+  font-size: 30pt;
+  line-height: 1.22;
+  margin: 0 0 4mm 0;
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: .01em;
+  border: 0;
+  padding: 0;
+}
+.cover h2 {
+  font-size: 19pt;
+  font-weight: 400;
+  color: #9cc4ee;
+  margin: 0 0 14mm 0;
+  border: 0;
+  padding: 0;
+  letter-spacing: .18em;
+}
+.cover-meta { margin-top: 16mm; }
+.cover-meta table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 3px;
+  font-size: 9.6pt;
+}
+.cover-meta th, .cover-meta td {
+  border: 0;
+  border-bottom: 1px solid rgba(255,255,255,.12);
+  padding: 3.2mm 4mm;
+  color: #e6eef8;
+  background: transparent;
+  text-align: left;
+}
+.cover-meta th { width: 34mm; color: #9cc4ee; font-weight: 500; }
+.cover-meta tr:last-child td, .cover-meta tr:last-child th { border-bottom: 0; }
+.cover-note {
+  margin-top: 12mm;
+  padding: 5mm 6mm;
+  border-left: 2.5px solid #6ea8dd;
+  background: rgba(255,255,255,.05);
+  color: #cfe0f1;
+  font-size: 9.4pt;
+  line-height: 1.8;
+}
+.cover-note p { margin: 0; }
+.cover-note { text-align: left; }
+
+/* ---------- 目录 ---------- */
+.toc-page {
+  page-break-after: always;
+  padding-top: 6mm;
+}
+.toc-title {
+  font-size: 20pt;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: .28em;
+  padding-bottom: 4mm;
+  border-bottom: 2px solid var(--navy);
+  margin-bottom: 7mm;
+}
+.toc-page ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.toc-page ul ul { padding-left: 7mm; }
+.toc-page li { margin: 0; }
+.toc-page a {
+  display: block;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 2.1mm 0;
+  border-bottom: 1px dotted #cfd8e3;
+  font-size: 10.4pt;
+}
+.toc-page > ul > li > a { font-weight: 600; color: var(--navy); }
+.toc-page ul ul a { font-size: 9.6pt; color: var(--muted); padding: 1.5mm 0; }
+.toc-foot {
+  margin-top: 18mm;
+  color: #9aa6b5;
+  font-size: 8.6pt;
+  text-align: center;
+  letter-spacing: .12em;
+}
+
+/* ---------- 标题 ---------- */
+.doc h2 {
+  font-size: 16pt;
+  color: var(--navy);
+  margin: 9mm 0 3.5mm 0;
+  padding: 0 0 2mm 4mm;
+  border-left: 4px solid var(--accent);
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+  break-after: avoid;
+}
+.doc h3 {
+  font-size: 12.2pt;
+  color: var(--navy-2);
+  margin: 7mm 0 2.5mm 0;
+  font-weight: 700;
+  break-after: avoid;
+}
+.doc h1 { font-size: 20pt; color: var(--navy); }
+
+/* ---------- 正文 ---------- */
+.doc p { margin: 0 0 3.2mm 0; text-align: justify; }
+.doc strong { color: #0f2744; }
+.doc ul, .doc ol { margin: 0 0 3.5mm 0; padding-left: 6mm; }
+.doc li { margin: 1.2mm 0; }
+.doc a { color: var(--accent); text-decoration: none; word-break: break-all; }
+.doc hr { border: 0; border-top: 1px solid var(--line); margin: 7mm 0; }
+
+/* ---------- 表格 ---------- */
+.doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 3mm 0 5mm 0;
+  font-size: 9.2pt;
+  line-height: 1.55;
+}
+.doc thead { display: table-header-group; }
+.doc tr { break-inside: avoid; }
+.doc thead th {
+  background: var(--navy);
+  color: #fff;
+  font-weight: 600;
+  text-align: left;
+  padding: 2.4mm 2.8mm;
+  border: 1px solid var(--navy);
+  white-space: nowrap;
+}
+.doc tbody td {
+  border: 1px solid var(--line);
+  padding: 2.2mm 2.8mm;
+  vertical-align: top;
+  background: #fff;
+}
+.doc tbody tr:nth-child(even) td { background: var(--tint); }
+.doc table code { font-size: 8.4pt; }
+
+/* ---------- 代码 ---------- */
+.doc pre {
+  background: #0f1c2e;
+  color: #d7e3f0;
+  border-radius: 3px;
+  padding: 4mm 4.5mm;
+  font-size: 8.3pt;
+  line-height: 1.62;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 3mm 0 5mm 0;
+  break-inside: avoid;
+}
+.doc pre code { color: inherit; background: transparent; padding: 0; font-size: inherit; }
+.doc code {
+  font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  background: #eef2f7;
+  color: #0f2744;
+  padding: 0.4mm 1.2mm;
+  border-radius: 2px;
+  font-size: 8.8pt;
+}
+
+/* ---------- 提示框 ---------- */
+.callout {
+  border-left: 4px solid var(--accent);
+  background: #eff5ff;
+  padding: 3.6mm 5mm;
+  margin: 4mm 0 5mm 0;
+  font-size: 9.6pt;
+  break-inside: avoid;
+}
+.callout.warn { border-left-color: var(--warn); background: #fff8ec; }
+.callout p:last-child { margin-bottom: 0; }
+
+/* ---------- 签字区 ---------- */
+.sign table { font-size: 9.6pt; }
+.sign thead th { background: #eef2f7; color: var(--navy); border-color: var(--line); }
+.sign td { height: 16mm; }
+.sign td:nth-child(1) { width: 34mm; }
+.sign td:nth-child(2) { width: 66mm; }
+
+/* ---------- 分页 ---------- */
+.page-break { page-break-after: always; height: 0; }
+h2, h3 { page-break-after: avoid; }
+pre, .callout { page-break-inside: avoid; }
+
+/* 屏幕预览 */
+@media screen {
+  body { background: #eef1f5; }
+  .doc, .toc-page {
+    max-width: 210mm;
+    margin: 0 auto;
+    background: #fff;
+    padding: 17mm 16mm;
+    box-shadow: 0 2px 18px rgba(15,39,68,.10);
+  }
+  .toc-page { padding-bottom: 22mm; }
+  .cover {
+    max-width: none;
+    margin: 0;
+    padding: 30mm 20mm;
+    min-height: 0;
+  }
+}
+
+/* 检查清单：两栏，避免最后一页只剩几行 */
+.checklist ul { columns: 2; column-gap: 12mm; margin-top: 2mm; }
+.checklist li { break-inside: avoid; }
+.appendix-c { break-before: page; }

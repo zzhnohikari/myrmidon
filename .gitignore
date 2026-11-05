@@ -33,6 +33,8 @@ COMMANDER-HANDOVER.md
 
 # Myrmidon 交付物：手册 HTML 需要入库（上面的 *.html 规则是给本地快照用的）
 !docs/使用手册.html
+# 交付报告（HTML/PDF 均需入库，客户直接拿）
+!docs/交付报告-Myrmidon-v1.0.0.html
 # 旧版模板备份只留本地
 lib/view_template.v1-*.bak
 

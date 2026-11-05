@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Myrmidon 安全任务控制台 · 交付报告</title>
+<style type="text/css">
+@page {
+size: A4;
+margin: 17mm 16mm 16mm 16mm;
+}
+
+@page :first { margin: 0; }
+:root {
+--navy: #0f2744;
+--navy-2: #17395f;
+--accent: #2563eb;
+--ink: #1f2937;
+--muted: #5b6676;
+--line: #dbe2ea;
+--tint: #f4f7fb;
+--ok: #15803d;
+--warn: #b45309;
+}
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+margin: 0;
+color: var(--ink);
+background: #fff;
+font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+"Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+font-size: 10.2pt;
+line-height: 1.72;
+-webkit-font-smoothing: antialiased;
+}
+.doc { padding: 0; }
+.doc > *:first-child { margin-top: 0; }
+
+.cover {
+margin: 0;
+padding: 30mm 20mm 24mm 20mm;
+min-height: 297mm;
+background: linear-gradient(160deg, #0b1d33 0%, #123255 52%, #1b4f7d 100%);
+color: #eaf2fb;
+display: flex;
+flex-direction: column;
+page-break-after: always;
+position: relative;
+overflow: hidden;
+}
+.cover::after {
+content: "";
+position: absolute;
+right: -60mm; bottom: -80mm;
+width: 190mm; height: 190mm;
+border-radius: 50%;
+background: radial-gradient(circle, rgba(96,165,250,.22) 0%, rgba(96,165,250,0) 68%);
+}
+.cover-mark {
+font-size: 10pt;
+letter-spacing: .42em;
+color: #7fb2e8;
+font-weight: 600;
+margin-bottom: 46mm;
+}
+.cover h1 {
+font-size: 30pt;
+line-height: 1.22;
+margin: 0 0 4mm 0;
+color: #ffffff;
+font-weight: 700;
+letter-spacing: .01em;
+border: 0;
+padding: 0;
+}
+.cover h2 {
+font-size: 19pt;
+font-weight: 400;
+color: #9cc4ee;
+margin: 0 0 14mm 0;
+border: 0;
+padding: 0;
+letter-spacing: .18em;
+}
+.cover-meta { margin-top: 16mm; }
+.cover-meta table {
+width: 100%;
+border-collapse: collapse;
+background: rgba(255,255,255,.06);
+border: 1px solid rgba(255,255,255,.18);
+border-radius: 3px;
+font-size: 9.6pt;
+}
+.cover-meta th, .cover-meta td {
+border: 0;
+border-bottom: 1px solid rgba(255,255,255,.12);
+padding: 3.2mm 4mm;
+color: #e6eef8;
+background: transparent;
+text-align: left;
+}
+.cover-meta th { width: 34mm; color: #9cc4ee; font-weight: 500; }
+.cover-meta tr:last-child td, .cover-meta tr:last-child th { border-bottom: 0; }
+.cover-note {
+margin-top: 12mm;
+padding: 5mm 6mm;
+border-left: 2.5px solid #6ea8dd;
+background: rgba(255,255,255,.05);
+color: #cfe0f1;
+font-size: 9.4pt;
+line-height: 1.8;
+}
+.cover-note p { margin: 0; }
+.cover-note { text-align: left; }
+
+.toc-page {
+page-break-after: always;
+padding-top: 6mm;
+}
+.toc-title {
+font-size: 20pt;
+font-weight: 700;
+color: var(--navy);
+letter-spacing: .28em;
+padding-bottom: 4mm;
+border-bottom: 2px solid var(--navy);
+margin-bottom: 7mm;
+}
+.toc-page ul {
+list-style: none;
+margin: 0;
+padding: 0;
+}
+.toc-page ul ul { padding-left: 7mm; }
+.toc-page li { margin: 0; }
+.toc-page a {
+display: block;
+color: var(--ink);
+text-decoration: none;
+padding: 2.1mm 0;
+border-bottom: 1px dotted #cfd8e3;
+font-size: 10.4pt;
+}
+.toc-page > ul > li > a { font-weight: 600; color: var(--navy); }
+.toc-page ul ul a { font-size: 9.6pt; color: var(--muted); padding: 1.5mm 0; }
+.toc-foot {
+margin-top: 18mm;
+color: #9aa6b5;
+font-size: 8.6pt;
+text-align: center;
+letter-spacing: .12em;
+}
+
+.doc h2 {
+font-size: 16pt;
+color: var(--navy);
+margin: 9mm 0 3.5mm 0;
+padding: 0 0 2mm 4mm;
+border-left: 4px solid var(--accent);
+border-bottom: 1px solid var(--line);
+font-weight: 700;
+break-after: avoid;
+}
+.doc h3 {
+font-size: 12.2pt;
+color: var(--navy-2);
+margin: 7mm 0 2.5mm 0;
+font-weight: 700;
+break-after: avoid;
+}
+.doc h1 { font-size: 20pt; color: var(--navy); }
+
+.doc p { margin: 0 0 3.2mm 0; text-align: justify; }
+.doc strong { color: #0f2744; }
+.doc ul, .doc ol { margin: 0 0 3.5mm 0; padding-left: 6mm; }
+.doc li { margin: 1.2mm 0; }
+.doc a { color: var(--accent); text-decoration: none; word-break: break-all; }
+.doc hr { border: 0; border-top: 1px solid var(--line); margin: 7mm 0; }
+
+.doc table {
+width: 100%;
+border-collapse: collapse;
+margin: 3mm 0 5mm 0;
+font-size: 9.2pt;
+line-height: 1.55;
+}
+.doc thead { display: table-header-group; }
+.doc tr { break-inside: avoid; }
+.doc thead th {
+background: var(--navy);
+color: #fff;
+font-weight: 600;
+text-align: left;
+padding: 2.4mm 2.8mm;
+border: 1px solid var(--navy);
+white-space: nowrap;
+}
+.doc tbody td {
+border: 1px solid var(--line);
+padding: 2.2mm 2.8mm;
+vertical-align: top;
+background: #fff;
+}
+.doc tbody tr:nth-child(even) td { background: var(--tint); }
+.doc table code { font-size: 8.4pt; }
+
+.doc pre {
+background: #0f1c2e;
+color: #d7e3f0;
+border-radius: 3px;
+padding: 4mm 4.5mm;
+font-size: 8.3pt;
+line-height: 1.62;
+overflow-x: auto;
+white-space: pre-wrap;
+word-break: break-word;
+margin: 3mm 0 5mm 0;
+break-inside: avoid;
+}
+.doc pre code { color: inherit; background: transparent; padding: 0; font-size: inherit; }
+.doc code {
+font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+background: #eef2f7;
+color: #0f2744;
+padding: 0.4mm 1.2mm;
+border-radius: 2px;
+font-size: 8.8pt;
+}
+
+.callout {
+border-left: 4px solid var(--accent);
+background: #eff5ff;
+padding: 3.6mm 5mm;
+margin: 4mm 0 5mm 0;
+font-size: 9.6pt;
+break-inside: avoid;
+}
+.callout.warn { border-left-color: var(--warn); background: #fff8ec; }
+.callout p:last-child { margin-bottom: 0; }
+
+.sign table { font-size: 9.6pt; }
+.sign thead th { background: #eef2f7; color: var(--navy); border-color: var(--line); }
+.sign td { height: 16mm; }
+.sign td:nth-child(1) { width: 34mm; }
+.sign td:nth-child(2) { width: 66mm; }
+
+.page-break { page-break-after: always; height: 0; }
+h2, h3 { page-break-after: avoid; }
+pre, .callout { page-break-inside: avoid; }
+
+@media screen {
+body { background: #eef1f5; }
+.doc, .toc-page {
+max-width: 210mm;
+margin: 0 auto;
+background: #fff;
+padding: 17mm 16mm;
+box-shadow: 0 2px 18px rgba(15,39,68,.10);
+}
+.toc-page { padding-bottom: 22mm; }
+.cover {
+max-width: none;
+margin: 0;
+padding: 30mm 20mm;
+min-height: 0;
+}
+}
+
+.checklist ul { columns: 2; column-gap: 12mm; margin-top: 2mm; }
+.checklist li { break-inside: avoid; }
+.appendix-c { break-before: page; }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="cover-mark">MYRMIDON</div>
+  <h1 class="cover-h1">Myrmidon 安全任务控制台</h1>
+  <div class="cover-sub">交 付 报 告</div>
+  <div class="cover-meta">
+    <table>
+      <tr><th>产品版本</th><td>v1.0.0-ui（tag <code>v1.0.0-ui</code>，commit <code>cec24cf</code>）</td></tr>
+      <tr><th>文档编号</th><td>MYM-DEL-2026-1105</td></tr>
+      <tr><th>交付日期</th><td>2026 年 11 月 5 日</td></tr>
+      <tr><th>交付方</th><td>【交付方名称】</td></tr>
+      <tr><th>接收方</th><td>【客户名称】</td></tr>
+      <tr><th>交付形式</th><td>离线镜像 + 源码仓库 + 文档</td></tr>
+      <tr><th>文档密级</th><td>商密 · 仅限接收方内部使用</td></tr>
+    </table>
+  </div>
+  <div class="cover-note">
+    本报告记录本次交付的范围、部署方式、实测验收结果、已知限制与运维要求。
+    <strong>所有验收结论均来自真实环境实测</strong>，测试环境、命令与输出摘录见第 5 章。
+  </div>
+</section>
+<nav class="toc-page">
+  <div class="toc-title">目 录</div>
+  <ul>
+  <li><a href="#文档信息" id="toc-文档信息">文档信息</a></li>
+  <li><a href="#交付概述" id="toc-交付概述">1. 交付概述</a></li>
+  <li><a href="#交付物清单" id="toc-交付物清单">2. 交付物清单</a></li>
+  <li><a href="#部署环境要求" id="toc-部署环境要求">3.
+  部署环境要求</a></li>
+  <li><a href="#部署实施" id="toc-部署实施">4. 部署实施</a></li>
+  <li><a href="#验收测试记录" id="toc-验收测试记录">5.
+  验收测试记录</a></li>
+  <li><a href="#功能与操作摘要" id="toc-功能与操作摘要">6.
+  功能与操作摘要</a></li>
+  <li><a href="#已知限制与后续规划" id="toc-已知限制与后续规划">7.
+  已知限制与后续规划</a></li>
+  <li><a href="#运维手册" id="toc-运维手册">8. 运维手册</a></li>
+  <li><a href="#安全与合规" id="toc-安全与合规">9. 安全与合规</a></li>
+  <li><a href="#验收结论" id="toc-验收结论">10. 验收结论</a></li>
+  <li><a href="#附录-a命令速查" id="toc-附录-a命令速查">附录
+  A：命令速查</a></li>
+  <li><a href="#附录-b端口与目录" id="toc-附录-b端口与目录">附录
+  B：端口与目录</a></li>
+  <li><a href="#附录-c交付检查清单" id="toc-附录-c交付检查清单">附录
+  C：交付检查清单</a></li>
+  </ul>
+  <div class="toc-foot">Myrmidon v1.0.0-ui · 交付报告</div>
+</nav>
+<main class="doc">
+<h2 id="文档信息">文档信息</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>版本</th>
+<th>日期</th>
+<th>修订人</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V1.0</td>
+<td>2026-11-05</td>
+<td>【交付方】</td>
+<td>首次交付：v1.0.0-ui 镜像、部署与验收记录</td>
+</tr>
+</tbody>
+</table>
+<p><strong>适用读者</strong>：客户方技术负责人、运维人员、安全测试人员。</p>
+<p><strong>配套文档</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>文档</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>《使用手册》（HTML / Markdown）</td>
+<td>面向使用者，图文操作指引</td>
+</tr>
+<tr>
+<td>《交付部署手册》</td>
+<td>面向运维，含 Nginx/HTTPS、VPN 接入、备份升级</td>
+</tr>
+<tr>
+<td>《新平台接入说明》</td>
+<td>面向二次开发，比赛平台适配器契约</td>
+</tr>
+<tr>
+<td>《发布说明 v1.0.0-ui》</td>
+<td>版本变更与产物校验值</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="交付概述">1. 交付概述</h2>
+<h3 id="产品定位">1.1 产品定位</h3>
+<p>Myrmidon 是一套<strong>面向安全测试任务的 AI
+编排控制台</strong>。使用者用一句话描述目标，系统把目标拆解为可验证的步骤，调用大模型驱动命令行工具执行，并把每一步的发现沉淀为”事实图谱”，最终形成可追溯的结论。</p>
+<p>与”直接对 AI 下指令”相比，它解决三个问题：</p>
+<ul>
+<li><strong>过程可追溯</strong>：每条结论都有来源事实与执行记录，不是一段无法核对的自然语言。</li>
+<li><strong>任务可管控</strong>：预算（分钟/步数）、并发、模型、权限都由控制台统一约束。</li>
+<li><strong>多人可协作</strong>：账号分角色、目录级隔离，客户之间互不可见。</li>
+</ul>
+<div class="callout">
+<p><strong>适用场景</strong>：授权范围内的渗透测试、攻防演练、比赛评测（TSecBench
+/ CTFd）、安全自查。
+<strong>不适用场景</strong>：未授权的目标、需要人工实时决策的高风险变更、替代专业渗透工程师的最终判断。</p>
+</div>
+<h3 id="本次交付范围">1.2 本次交付范围</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>在交付范围内</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>控制台程序</td>
+<td>Web 界面、任务管理、Auto 编排、作战图、日志、发现台账</td>
+</tr>
+<tr>
+<td>账号与隔离</td>
+<td>登录鉴权（pbkdf2）、admin / viewer 两角色、目录级授权</td>
+</tr>
+<tr>
+<td>模型接入</td>
+<td>任意 Anthropic 兼容网关（含 DeepSeek 等），页面内配置与切换</td>
+</tr>
+<tr>
+<td>平台接入</td>
+<td>TSecBench 原生、CTFd 适配器、本地离线题库</td>
+</tr>
+<tr>
+<td>交付物</td>
+<td>离线 Docker 镜像、源码仓库、四份文档</td>
+</tr>
+<tr>
+<td>实测验收</td>
+<td>源码安装与容器安装两条路径 + 真实模型 Auto 运行</td>
+</tr>
+</tbody>
+</table>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>不在交付范围内</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>渗透工具链</td>
+<td>控制台镜像不含 nmap / pwntools / nuclei；需另用 Kali 底座镜像（见
+3.3）</td>
+</tr>
+<tr>
+<td>大模型账号与额度</td>
+<td>由客户自行提供 API Key，费用由客户承担</td>
+</tr>
+<tr>
+<td>比赛平台账号</td>
+<td>由客户提供，交付方不代持</td>
+</tr>
+<tr>
+<td>定制开发</td>
+<td>报告模板、审计日志、SSO 等属后续版本（见第 7 章）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="版本与许可">1.3 版本与许可</h3>
+<ul>
+<li>版本号：<code>sapper 1.0.0</code>，交付标识
+<code>v1.0.0-ui</code>。</li>
+<li>许可证：<strong>MIT</strong>（衍生自开源项目
+sapper-v2，保留原始版权声明）。</li>
+<li>交付仓库：<a href="https://github.com/zzhnohikari/myrmidon" class="uri">https://github.com/zzhnohikari/myrmidon</a>（公开仓库，可直接获取源码）。</li>
+</ul>
+<hr />
+<h2 id="交付物清单">2. 交付物清单</h2>
+<h3 id="交付内容">2.1 交付内容</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>编号</th>
+<th>交付物</th>
+<th>形式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D-01</td>
+<td>控制台镜像包</td>
+<td><code>myrmidon-console-1.0.0-linux-amd64.tar.gz</code>（423,083,562
+字节）</td>
+<td>离线部署主体，<code>docker load</code> 即用</td>
+</tr>
+<tr>
+<td>D-02</td>
+<td>源码仓库</td>
+<td>GitHub 公开仓库 + 本地副本</td>
+<td>二次开发、审计、自行构建</td>
+</tr>
+<tr>
+<td>D-03</td>
+<td>《使用手册》</td>
+<td>单文件 HTML（含 10 张截图）+ Markdown</td>
+<td>使用者培训</td>
+</tr>
+<tr>
+<td>D-04</td>
+<td>《交付部署手册》</td>
+<td>Markdown</td>
+<td>运维部署与日常维护</td>
+</tr>
+<tr>
+<td>D-05</td>
+<td>《新平台接入说明》</td>
+<td>Markdown</td>
+<td>对接其他比赛/靶场平台</td>
+</tr>
+<tr>
+<td>D-06</td>
+<td>《发布说明 v1.0.0-ui》</td>
+<td>Markdown</td>
+<td>版本内容与校验值</td>
+</tr>
+<tr>
+<td>D-07</td>
+<td>本交付报告</td>
+<td>Markdown / HTML / PDF</td>
+<td>验收依据</td>
+</tr>
+</tbody>
+</table>
+<h3 id="校验值">2.2 校验值</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>对象</th>
+<th>校验值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>镜像 tag</td>
+<td><code>myrmidon-console:1.0.0-amd64</code></td>
+</tr>
+<tr>
+<td>镜像平台</td>
+<td><code>linux/amd64</code></td>
+</tr>
+<tr>
+<td>镜像 ID</td>
+<td><code>sha256:085ef36c175e7db9ffc043c3a1bfc586c54c81661d396fd92458844cce527a04</code></td>
+</tr>
+<tr>
+<td>镜像大小</td>
+<td>423,083,562 字节（约 404 MB）</td>
+</tr>
+<tr>
+<td>离线包 SHA256</td>
+<td><code>57c8996a0cec087a78650b96a5fe2e69eb82eb7480c0062cc54931f70e31792f</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>客户接收后请先核对</strong>：</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sha256sum</span> myrmidon-console-1.0.0-linux-amd64.tar.gz</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 应为 57c8996a0cec087a78650b96a5fe2e69eb82eb7480c0062cc54931f70e31792f</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> load <span class="op">&lt;</span> myrmidon-console-1.0.0-linux-amd64.tar.gz</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> image inspect myrmidon-console:1.0.0-amd64 <span class="at">--format</span> <span class="st">&#39;{{.Os}}/{{.Architecture}}&#39;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"># 应为 linux/amd64</span></span></code></pre></div>
+<div class="callout warn">
+<p><strong>镜像架构必须与目标服务器一致。</strong> 本包为
+<code>linux/amd64</code>，适用于绝大多数 x86_64 云主机。 若目标机是
+ARM（如部分国产化平台或 Apple Silicon），需用
+<code>--platform linux/arm64</code> 重新构建， 混用会报
+<code>exec format error</code>（详见 8.1 排障）。</p>
+</div>
+<hr />
+<h2 id="部署环境要求">3. 部署环境要求</h2>
+<h3 id="最低配置">3.1 最低配置</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>项目</th>
+<th>最低</th>
+<th>推荐</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU</td>
+<td>2 核</td>
+<td>4 核</td>
+<td>Auto 本身是串行调用模型，多核主要给并发任务</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>4 GB</td>
+<td>8 GB</td>
+<td>实测 2C4G 可正常运行</td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>20 GB</td>
+<td>50 GB</td>
+<td>镜像约 1.3 GB（解压后），任务数据增长取决于使用量</td>
+</tr>
+<tr>
+<td>操作系统</td>
+<td>Linux x86_64（Ubuntu 22.04 实测）</td>
+<td>同左</td>
+<td>需支持 Docker</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td>20.10+</td>
+<td>24+</td>
+<td>实测 29.1.3</td>
+</tr>
+<tr>
+<td>网络</td>
+<td>能访问模型网关</td>
+<td>同左</td>
+<td>控制台自身不需要公网入口</td>
+</tr>
+</tbody>
+</table>
+<h3 id="依赖项">3.2 依赖项</h3>
+<table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>是否随镜像提供</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python 3.11</td>
+<td>是</td>
+<td>控制台运行时（纯标准库）</td>
+</tr>
+<tr>
+<td>Node.js 22</td>
+<td>是</td>
+<td>claude CLI 运行时</td>
+</tr>
+<tr>
+<td>claude CLI 2.1.318</td>
+<td>是</td>
+<td>模型调用与工具执行引擎</td>
+</tr>
+<tr>
+<td>模型网关</td>
+<td>否</td>
+<td>客户提供 Base URL 与 Token</td>
+</tr>
+<tr>
+<td>比赛平台令牌</td>
+<td>否</td>
+<td>仅比赛场景需要</td>
+</tr>
+</tbody>
+</table>
+<h3 id="工具链说明重要">3.3 工具链说明（重要）</h3>
+<p>交付的控制台镜像只包含”大脑”（编排 +
+模型调用），<strong>不含渗透测试工具</strong>。若需要 AI 实际执行
+nmap、sqlmap、nuclei 等命令，请使用仓库中的 Kali
+底座镜像（<code>docker/Dockerfile</code>，约 5.3
+GB），并在启动时替换镜像名。控制台代码完全一致，仅运行环境不同。</p>
+<hr />
+<h2 id="部署实施">4. 部署实施</h2>
+<h3 id="方式一离线镜像推荐">4.1 方式一：离线镜像（推荐）</h3>
+<p>适用于客户环境不能访问公网、或需要快速复制多套环境的场景。</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 1) 导入镜像</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> load <span class="op">&lt;</span> myrmidon-console-1.0.0-linux-amd64.tar.gz</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 2) 生成管理员账号（数据卷目录按客户规范调整）</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> /opt/myrmidon/data</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> <span class="at">--entrypoint</span> python3 <span class="dt">\</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">-v</span> /opt/myrmidon/data:/data myrmidon-console:1.0.0-amd64 <span class="dt">\</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  /app/lib/sapper.py console-user add admin <span class="dt">\</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--role</span> admin <span class="at">--password</span> <span class="st">&#39;请替换为强密码&#39;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="co"># 3) 配置模型网关（凭据写入独立文件，权限 600）</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="op">&gt;</span> /opt/myrmidon/model.env <span class="op">&lt;&lt;&#39;ENV&#39;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="st">ANTHROPIC_BASE_URL=https://&lt;客户网关地址&gt;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="st">ANTHROPIC_AUTH_TOKEN=&lt;客户 API Key&gt;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="op">ENV</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="fu">chmod</span> 600 /opt/myrmidon/model.env</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="co"># 4) 启动</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-d</span> <span class="at">--name</span> myrmidon <span class="at">--restart</span> unless-stopped <span class="dt">\</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">-p</span> 127.0.0.1:8890:8890 <span class="dt">\</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">-v</span> /opt/myrmidon/data:/data <span class="dt">\</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">--env-file</span> /opt/myrmidon/model.env <span class="dt">\</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  myrmidon-console:1.0.0-amd64</span></code></pre></div>
+<blockquote>
+<p><strong><code>--entrypoint python3</code>
+不可省略</strong>：镜像默认入口是控制台启动脚本，执行一次性命令时必须覆盖。</p>
+</blockquote>
+<h3 id="方式二源码安装">4.2 方式二：源码安装</h3>
+<p>适用于需要审计代码或二次开发的场景。</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/zzhnohikari/myrmidon.git</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> myrmidon</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> install.sh                                  <span class="co"># 安装 sapper CLI（纯标准库）</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="ex">sapper</span> console-user add admin <span class="at">--password</span> <span class="st">&#39;强密码&#39;</span>  <span class="co"># 首次建账号</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">IS_SANDBOX</span><span class="op">=</span>1                              <span class="co"># 以 root 运行时必需（见 8.1）</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="ex">sapper</span> console <span class="at">--root</span> ./missions <span class="at">--port</span> 8890</span></code></pre></div>
+<p>源码方式需要客户自行安装 Node.js 22 与 claude
+CLI（<code>npm i -g @anthropic-ai/claude-code</code>）。</p>
+<h3 id="对外访问与-https">4.3 对外访问与 HTTPS</h3>
+<p>默认只监听
+<code>127.0.0.1</code>，不对外暴露。需要多人访问时，建议前置 Nginx
+并启用 HTTPS：</p>
+<pre class="nginx"><code>server {
+    listen 443 ssl http2;
+    server_name myrmidon.example.com;
+    ssl_certificate     /etc/ssl/certs/myrmidon.crt;
+    ssl_certificate_key /etc/ssl/private/myrmidon.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:8890;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}</code></pre>
+<p>若测试目标位于内网，按《交付部署手册》第 6 章接入
+VPN（容器旁路、宿主机路由、独立网关三种方式）。</p>
+<h3 id="上线后初始化约-5-分钟">4.4 上线后初始化（约 5 分钟）</h3>
+<ol type="1">
+<li>浏览器打开控制台，用管理员账号登录。</li>
+<li>「设置 → 模型网关」确认 Base URL / Token
+正确，点「拉取模型」选择模型。</li>
+<li>「设置 → Auto
+默认参数」设定默认预算（分钟）、步数、默认模型，后续新建任务不再重复填写。</li>
+<li>「设置 → 任务凭证」填写比赛平台 Token（仅比赛场景）。</li>
+<li>新建一个任务，输入目标，点「开始执行」，确认能正常产生日志与事实。</li>
+</ol>
+<hr />
+<h2 id="验收测试记录">5. 验收测试记录</h2>
+<h3 id="测试环境">5.1 测试环境</h3>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>容器路径</th>
+<th>源码路径</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>云厂商/地域</td>
+<td>腾讯云 · 北京</td>
+<td>同左</td>
+</tr>
+<tr>
+<td>实例规格</td>
+<td>SA3.MEDIUM4（2 核 4 GB，竞价）</td>
+<td>同左</td>
+</tr>
+<tr>
+<td>操作系统</td>
+<td>Ubuntu 22.04</td>
+<td>Ubuntu 22.04</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td>29.1.3</td>
+<td>29.1.3</td>
+</tr>
+<tr>
+<td>Python</td>
+<td>3.11（镜像内置）</td>
+<td>3.10.12（系统）</td>
+</tr>
+<tr>
+<td>Node / claude</td>
+<td>22.23.4 / 2.1.318</td>
+<td>22.20.0 / 2.1.318</td>
+</tr>
+<tr>
+<td>模型</td>
+<td>DeepSeek（Anthropic 兼容端点）</td>
+<td>同左</td>
+</tr>
+</tbody>
+</table>
+<h3 id="功能验收">5.2 功能验收</h3>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>编号</th>
+<th>用例</th>
+<th>预期</th>
+<th>实测结果</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>T-01</td>
+<td>容器启动</td>
+<td>容器 healthy</td>
+<td><code>Up (healthy)</code></td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-02</td>
+<td>健康检查</td>
+<td>HTTP 200</td>
+<td>200</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-03</td>
+<td>未登录访问接口</td>
+<td>HTTP 401</td>
+<td>401</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-04</td>
+<td>错误密码登录</td>
+<td>HTTP 401</td>
+<td>401</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-05</td>
+<td>正确账号登录</td>
+<td>HTTP 200 + 会话</td>
+<td>200</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-06</td>
+<td>创建任务</td>
+<td>落盘至数据卷</td>
+<td><code>/data/roots/&lt;任务&gt;</code> 生成</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-07</td>
+<td>启动 Auto（容器）</td>
+<td>调通模型并产出事实</td>
+<td>两轮推理，<code>status=completed</code>，5 条事实</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-08</td>
+<td>启动 Auto（源码）</td>
+<td>同上</td>
+<td>产出 <code>f002 源码安装已核验</code></td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-09</td>
+<td>任务状态语义</td>
+<td>完成/未完成可区分</td>
+<td>完成=completed，预算耗尽=active</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-10</td>
+<td>重启后数据保留</td>
+<td>任务与图谱不丢</td>
+<td>重建容器后历史任务仍在</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-11</td>
+<td>镜像架构</td>
+<td>与目标机一致</td>
+<td><code>linux/amd64</code>，可执行</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>T-12</td>
+<td>鉴权配置自动识别</td>
+<td>账号文件生效</td>
+<td>未登录 401，登录 200</td>
+<td>通过</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>测试用例 T-07 / T-08
+是本次验收的关键：前序版本在”健康检查全部通过”的情况下，Auto 实际 100%
+失败，详见 5.4 缺陷
+D-02。因此验收不以健康检查为终点，而以”真实模型跑完一个任务”为准。</p>
+</blockquote>
+<h3 id="auto-运行证据容器路径">5.3 Auto 运行证据（容器路径）</h3>
+<pre><code>[auto] start  model=&lt;客户模型&gt; max_steps=2 verify=False
+[auto] step 1.1 reason
+[auto]        reason -&gt; proposed intents: i001, i002
+[auto] step 1.2 explore i001
+[auto]        i001 concluded by the executor itself
+[auto] step 1.2 explore i002
+[auto]        i002 concluded by the executor itself
+[auto] step 2.1 reason
+[auto]        reason -&gt; goal complete via i003
+[auto] step 2: goal completed by reason
+[auto] done  status=completed  explored=2</code></pre>
+<p>任务结束后图谱中有 5
+条事实（含起点、模型调用链验证、落库记录等），任务状态为「已完成」。</p>
+<h3 id="交付前修复的缺陷">5.4 交付前修复的缺陷</h3>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>编号</th>
+<th>问题</th>
+<th>影响</th>
+<th>修复</th>
+<th>验证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D-01</td>
+<td>账号文件写入路径与控制台读取路径不一致</td>
+<td>建了账号但控制台仍为”无鉴权”开放模式，且无报错</td>
+<td>统一三级解析（命令行 &gt; 环境变量 &gt;
+默认路径），容器入口两条路径都识别</td>
+<td>T-12</td>
+</tr>
+<tr>
+<td>D-02</td>
+<td>容器以 root 运行时 claude 拒绝
+<code>--dangerously-skip-permissions</code></td>
+<td>Auto 每一步都失败；健康检查、登录、建任务全部正常，极易漏检</td>
+<td>镜像内置 <code>IS_SANDBOX=1</code>；引擎错误补可操作提示</td>
+<td>T-07</td>
+</tr>
+<tr>
+<td>D-03</td>
+<td>首次导出的镜像为 <code>linux/arm64</code>（构建机架构）</td>
+<td>在 x86_64 服务器 <code>docker load</code> 成功但执行即
+<code>exec format error</code></td>
+<td>按 <code>linux/amd64</code> 重新构建并复测</td>
+<td>T-11</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>这三个缺陷都只在”真机 +
+真模型”环境下才会暴露，是本报告以实测为准的原因。修复后的镜像即本次交付版本。</p>
+</blockquote>
+<hr />
+<h2 id="功能与操作摘要">6. 功能与操作摘要</h2>
+<h3 id="界面结构">6.1 界面结构</h3>
+<table>
+<thead>
+<tr>
+<th>页面</th>
+<th>能力</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>概览</td>
+<td>关键指标、近 7 天活跃度、新手指引</td>
+</tr>
+<tr>
+<td>任务</td>
+<td>任务列表（搜索/状态筛选/排序/分页/批量操作）、新建任务</td>
+</tr>
+<tr>
+<td>任务详情</td>
+<td>结论 / 作战图 / 发现 / 步骤 / 日志 五个页签</td>
+</tr>
+<tr>
+<td>跑分</td>
+<td>比赛队列、平台得分、容器占用</td>
+</tr>
+<tr>
+<td>设置</td>
+<td>模型网关、任务凭证、Auto 默认参数、引擎、账号、目录</td>
+</tr>
+</tbody>
+</table>
+<h3 id="任务生命周期">6.2 任务生命周期</h3>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+<th>使用者动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>运行中</td>
+<td>正在调用模型执行</td>
+<td>可查看实时日志，可停止</td>
+</tr>
+<tr>
+<td>未完成</td>
+<td>预算内未判定完成，进度已保留</td>
+<td>追加预算后「开始执行」继续</td>
+</tr>
+<tr>
+<td>已完成</td>
+<td>目标已达成或判定完成</td>
+<td>查看结论与发现，可导出</td>
+</tr>
+</tbody>
+</table>
+<h3 id="平台接入">6.3 平台接入</h3>
+<table>
+<thead>
+<tr>
+<th>平台</th>
+<th>接入方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TSecBench</td>
+<td>内置适配器，填平台地址与 Token</td>
+</tr>
+<tr>
+<td>CTFd</td>
+<td>内置适配器，填地址与 API Token</td>
+</tr>
+<tr>
+<td>本地离线题库</td>
+<td>配置文件定义题目与 flag，适合演练与培训</td>
+</tr>
+<tr>
+<td>其他</td>
+<td>按《新平台接入说明》实现 5 个方法即可</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="已知限制与后续规划">7. 已知限制与后续规划</h2>
+<h3 id="当前版本限制">7.1 当前版本限制</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>限制</th>
+<th>影响</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>无审计日志</td>
+<td>无法追溯”谁在何时做了什么”</td>
+<td>当前依赖操作系统账号与反向代理访问日志；正式多租户环境请等待后续版本</td>
+</tr>
+<tr>
+<td>无报告模板导出</td>
+<td>结论以页面/Markdown 导出为主</td>
+<td>可先用「导出」功能取 Markdown，人工整理</td>
+</tr>
+<tr>
+<td>列表为前端分页</td>
+<td>任务数达数千时列表加载偏慢</td>
+<td>按目录拆分为多个任务根</td>
+</tr>
+<tr>
+<td>控制台镜像不含工具链</td>
+<td>无法直接执行 nmap 等命令</td>
+<td>使用 Kali 底座镜像</td>
+</tr>
+<tr>
+<td>单机部署</td>
+<td>不支持多节点集群与任务调度</td>
+<td>本次交付为单机版</td>
+</tr>
+<tr>
+<td>目录级隔离</td>
+<td>隔离粒度是任务根目录，不是行级权限</td>
+<td>每个客户/项目分配独立目录</td>
+</tr>
+</tbody>
+</table>
+<h3 id="后续版本方向不在本次交付">7.2 后续版本方向（不在本次交付）</h3>
+<ul>
+<li>审计日志与操作留痕</li>
+<li>报告模板与一键导出（Word / PDF）</li>
+<li>服务端分页与大规模任务管理</li>
+<li>登录失败锁定、双因素认证、SSO</li>
+<li>多节点调度与任务队列</li>
+</ul>
+<hr />
+<h2 id="运维手册">8. 运维手册</h2>
+<h3 id="常见问题排查">8.1 常见问题排查</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>现象</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exec format error</code></td>
+<td>镜像架构与主机不符</td>
+<td><code>docker image inspect</code> 核对；x86_64 用 amd64 包</td>
+</tr>
+<tr>
+<td>Auto 每步报
+<code>dangerously-skip-permissions cannot be used with root</code></td>
+<td>以 root 运行且未放行</td>
+<td>容器镜像已内置 <code>IS_SANDBOX=1</code>；裸机执行
+<code>export IS_SANDBOX=1</code> 或改用普通用户</td>
+</tr>
+<tr>
+<td>登录一直失败</td>
+<td>账号文件不在容器识别的路径</td>
+<td>用 <code>--file /data/users.json</code> 显式指定，或确认
+<code>/data/.sapper/users.json</code></td>
+</tr>
+<tr>
+<td>页面能开但接口 401</td>
+<td>未登录或会话过期（12 小时）</td>
+<td>重新登录</td>
+</tr>
+<tr>
+<td>建任务提示 stale page</td>
+<td>控制台重启后旧页面令牌失效</td>
+<td>强制刷新页面（Cmd/Ctrl+Shift+R）</td>
+</tr>
+<tr>
+<td>端口被占用</td>
+<td>宿主机已有进程监听</td>
+<td>换端口或停止占用进程</td>
+</tr>
+</tbody>
+</table>
+<h3 id="备份">8.2 备份</h3>
+<p>所有状态都在数据卷（<code>/data</code>），容器本身无状态：</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> stop myrmidon</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">tar</span> czf /backup/myrmidon-<span class="va">$(</span><span class="fu">date</span> +%F<span class="va">)</span>.tar.gz <span class="at">-C</span> /opt/myrmidon data</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> start myrmidon</span></code></pre></div>
+<p>建议每日备份，保留 7 份。恢复时解压回原路径后启动容器即可。</p>
+<h3 id="升级与回滚">8.3 升级与回滚</h3>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 升级</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> load <span class="op">&lt;</span> myrmidon-console-<span class="op">&lt;</span>新版本<span class="op">&gt;</span>.tar.gz</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> rm <span class="at">-f</span> myrmidon</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-d</span> <span class="at">--name</span> myrmidon ... <span class="op">&lt;</span>新镜像tag<span class="op">&gt;</span>      <span class="co"># 参数与首次部署一致</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="co"># 回滚：换回旧 tag 启动即可，数据结构向后兼容</span></span></code></pre></div>
+<h3 id="日常检查">8.4 日常检查</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>项目</th>
+<th>命令</th>
+<th>期望</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>容器状态</td>
+<td><code>docker ps --filter name=myrmidon</code></td>
+<td><code>Up (healthy)</code></td>
+</tr>
+<tr>
+<td>健康检查</td>
+<td><code>curl -s http://127.0.0.1:8890/api/health</code></td>
+<td><code>{&quot;ok&quot;: true, ...}</code></td>
+</tr>
+<tr>
+<td>磁盘余量</td>
+<td><code>df -h /opt/myrmidon</code></td>
+<td>使用率 &lt; 80%</td>
+</tr>
+<tr>
+<td>日志</td>
+<td><code>docker logs --tail 200 myrmidon</code></td>
+<td>无持续报错</td>
+</tr>
+</tbody>
+</table>
+<h3 id="账号管理">8.5 账号管理</h3>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 新增只读账号，仅能看指定目录</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> exec myrmidon sapper console-user add clientA <span class="dt">\</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--role</span> viewer <span class="at">--roots</span> <span class="st">&#39;client-a&#39;</span> <span class="at">--password</span> <span class="st">&#39;强密码&#39;</span> <span class="at">--file</span> /data/users.json</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 查看</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> exec myrmidon sapper console-user list <span class="at">--file</span> /data/users.json</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> restart myrmidon</span></code></pre></div>
+<hr />
+<h2 id="安全与合规">9. 安全与合规</h2>
+<h3 id="授权边界">9.1 授权边界</h3>
+<p>本系统是安全测试工具，<strong>仅可在获得书面授权的目标上使用</strong>。客户应在每次任务前确认：</p>
+<ul>
+<li>目标资产在授权范围内（域名、IP、端口清单）；</li>
+<li>测试时间窗与禁止操作（如禁止删改数据、禁止拒绝服务）；</li>
+<li>数据留存与销毁要求。</li>
+</ul>
+<h3 id="交付安全措施">9.2 交付安全措施</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>措施</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>默认不对外暴露</td>
+<td>容器只监听
+<code>127.0.0.1</code>，需显式配置反向代理才可外部访问</td>
+</tr>
+<tr>
+<td>密码存储</td>
+<td>pbkdf2-sha256（12 万轮）加盐哈希，不存明文</td>
+</tr>
+<tr>
+<td>会话</td>
+<td>HttpOnly + SameSite=Lax Cookie，12 小时过期</td>
+</tr>
+<tr>
+<td>写操作校验</td>
+<td>每次启动生成一次性写入令牌并注入页面，防跨站提交</td>
+</tr>
+<tr>
+<td>凭据隔离</td>
+<td>模型 Key 存放于独立环境文件（权限 600），不写入镜像、不入库</td>
+</tr>
+<tr>
+<td>镜像无默认口令</td>
+<td>首次部署必须显式创建账号</td>
+</tr>
+</tbody>
+</table>
+<h3 id="客户侧责任">9.3 客户侧责任</h3>
+<ol type="1">
+<li>首次登录后立即修改初始密码，并为每位使用者分配独立账号；</li>
+<li>妥善保管模型网关 Key 与比赛平台 Token，定期轮换；</li>
+<li>对外提供访问时启用 HTTPS，并限制来源 IP；</li>
+<li>按内部制度保留与清理任务数据（数据位于
+<code>/opt/myrmidon/data</code>）。</li>
+</ol>
+<hr />
+<h2 id="验收结论">10. 验收结论</h2>
+<h3 id="结论">10.1 结论</h3>
+<p>本次交付的 Myrmidon v1.0.0-ui 在指定测试环境完成部署，<strong>12
+项功能用例全部通过</strong>，并在容器与源码两种部署方式下各完成一次真实模型驱动的
+Auto 任务，产出可核对的事实记录。交付物、文档、校验值齐备。</p>
+<h3 id="验收确认">10.2 验收确认</h3>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>结论</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>交付物完整性</td>
+<td>□ 通过 □ 不通过</td>
+<td></td>
+</tr>
+<tr>
+<td>部署可用性</td>
+<td>□ 通过 □ 不通过</td>
+<td></td>
+</tr>
+<tr>
+<td>功能符合性</td>
+<td>□ 通过 □ 不通过</td>
+<td></td>
+</tr>
+<tr>
+<td>文档完整性</td>
+<td>□ 通过 □ 不通过</td>
+<td></td>
+</tr>
+<tr>
+<td>安全要求</td>
+<td>□ 通过 □ 不通过</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<div class="sign">
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>签字</th>
+<th>日期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>交付方负责人</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>客户方负责人</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>客户方运维</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</div>
+<hr />
+<h2 id="附录-a命令速查">附录 A：命令速查</h2>
+<div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 导入与查看</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> load <span class="op">&lt;</span> myrmidon-console-1.0.0-linux-amd64.tar.gz</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> image inspect myrmidon-console:1.0.0-amd64 <span class="at">--format</span> <span class="st">&#39;{{.Os}}/{{.Architecture}}&#39;</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 创建账号</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> <span class="at">--entrypoint</span> python3 <span class="at">-v</span> /opt/myrmidon/data:/data <span class="dt">\</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  myrmidon-console:1.0.0-amd64 /app/lib/sapper.py console-user add admin <span class="dt">\</span></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--role</span> admin <span class="at">--password</span> <span class="st">&#39;强密码&#39;</span></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a><span class="co"># 启动 / 停止 / 重启</span></span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-d</span> <span class="at">--name</span> myrmidon <span class="at">--restart</span> unless-stopped <span class="dt">\</span></span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">-p</span> 127.0.0.1:8890:8890 <span class="at">-v</span> /opt/myrmidon/data:/data <span class="dt">\</span></span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--env-file</span> /opt/myrmidon/model.env myrmidon-console:1.0.0-amd64</span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> stop myrmidon <span class="kw">&amp;&amp;</span> <span class="ex">docker</span> start myrmidon</span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a><span class="co"># 健康检查与验收</span></span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-s</span> http://127.0.0.1:8890/api/health</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-s</span> <span class="at">-o</span> /dev/null <span class="at">-w</span> <span class="st">&#39;%{http_code}\n&#39;</span> http://127.0.0.1:8890/api/missions   <span class="co"># 期望 401</span></span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a><span class="co"># 备份</span></span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a><span class="fu">tar</span> czf /backup/myrmidon-<span class="va">$(</span><span class="fu">date</span> +%F<span class="va">)</span>.tar.gz <span class="at">-C</span> /opt/myrmidon data</span></code></pre></div>
+<h2 id="附录-b端口与目录">附录 B：端口与目录</h2>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>服务端口</td>
+<td>8890</td>
+<td>仅监听 127.0.0.1</td>
+</tr>
+<tr>
+<td>数据目录</td>
+<td><code>/data</code>（容器内）</td>
+<td>挂载到宿主机 <code>/opt/myrmidon/data</code></td>
+</tr>
+<tr>
+<td>账号文件</td>
+<td><code>/data/.sapper/users.json</code></td>
+<td>或 <code>--file</code> 指定的路径</td>
+</tr>
+<tr>
+<td>任务根目录</td>
+<td><code>/data/roots</code></td>
+<td>每个子目录一个任务</td>
+</tr>
+<tr>
+<td>作业日志</td>
+<td><code>/data/roots/.console/jobs</code></td>
+<td>Auto / 跑分任务日志</td>
+</tr>
+<tr>
+<td>全局设置</td>
+<td>容器内 <code>/data/.sapper/console.json</code></td>
+<td>网关、默认参数等</td>
+</tr>
+</tbody>
+</table>
+<section id="附录-c交付检查清单" class="appendix-c">
+<h2>附录 C：交付检查清单</h2>
+<div class="checklist">
+<ul>
+<li>□ 离线镜像包已核对 SHA256</li>
+<li>□ <code>docker load</code> 后架构为 <code>linux/amd64</code></li>
+<li>□ 管理员账号已创建，初始密码已修改</li>
+<li>□ 模型网关连通，模型列表可拉取</li>
+<li>□ 未登录访问 <code>/api/missions</code> 返回 401</li>
+<li>□ 新建任务可执行并产生事实</li>
+<li>□ 已配置数据备份策略</li>
+<li>□ 已确认对外访问方式（本机 / VPN / HTTPS 反向代理）</li>
+<li>□ 使用者已接受《使用手册》培训</li>
+<li>□ 验收确认页已签字</li>
+</ul>
+</div>
+</section>
+</main>
+</body>
+</html>
