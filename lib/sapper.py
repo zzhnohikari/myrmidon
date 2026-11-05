@@ -3829,6 +3829,29 @@ def _load_users(path: Path | None) -> dict:
     return data
 
 
+def _resolve_console_users(args) -> dict:
+    """--users > SAPPER_CONSOLE_USERS > ~/.sapper/users.json（console-user 的默认落点）。
+
+    最后一档不能省：CLI 建账号写的就是那里，服务端不认的话，
+    "账号建好了但控制台仍对所有人开放"是静默失效。
+    """
+    if getattr(args, "users", None):
+        return _load_users(Path(args.users))
+    raw = os.environ.get("SAPPER_CONSOLE_USERS")
+    if raw:
+        try:
+            users = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise FGError(f"SAPPER_CONSOLE_USERS 不是合法 JSON: {exc}") from exc
+        if not isinstance(users, dict):
+            raise FGError("SAPPER_CONSOLE_USERS 必须是对象")
+        return users
+    default = Path.home() / ".sapper" / "users.json"
+    if default.exists():
+        return _load_users(default)
+    return {}
+
+
 class _AuthError(Exception):
     def __init__(self, message: str, status: int = 401):
         super().__init__(message)
@@ -3937,18 +3960,7 @@ def _console_serve(roots: list[Path], args) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # ---- 鉴权：配置了用户文件就强制登录；没配置=本机开发模式 ----
-    users = {}
-    if getattr(args, "users", None):
-        users = _load_users(Path(args.users))
-    elif os.environ.get("SAPPER_CONSOLE_USERS"):
-        try:
-            users = json.loads(os.environ["SAPPER_CONSOLE_USERS"])
-        except json.JSONDecodeError as exc:
-            raise FGError(f"SAPPER_CONSOLE_USERS 不是合法 JSON: {exc}") from exc
-    elif (Path.home() / ".sapper" / "users.json").exists():
-        # console-user 默认写这里：不显式给 --users 也要生效，
-        # 否则"建了账号但控制台仍是开放模式"是静默失效
-        users = _load_users(Path.home() / ".sapper" / "users.json")
+    users = _resolve_console_users(args)
     auth_required = bool(users)
     sessions: dict[str, dict] = {}
     sessions_lock = threading.Lock()

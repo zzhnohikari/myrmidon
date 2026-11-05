@@ -732,3 +732,51 @@ class KeyRotationTests(unittest.TestCase):
             "ANTHROPIC_AUTH_TOKEN": "t1"}):
             self.assertTrue(sapper._rotate_key())
             self.assertEqual(os.environ["ANTHROPIC_AUTH_TOKEN"], "t1")
+
+
+class ConsoleAuthResolutionTests(unittest.TestCase):
+    """账号文件解析：CLI 建的账号必须真的让控制台进入鉴权模式。"""
+
+    def _args(self, users=None):
+        return mock.Mock(**{"users": users}) if users is not None else mock.Mock(users=None)
+
+    def test_default_users_file_is_loaded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".sapper" / "users.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({
+                "admin": {"password": sapper._pbkdf2_hash("pw"), "role": "admin", "roots": "*"},
+            }), encoding="utf-8")
+            with mock.patch.object(sapper.Path, "home", lambda: Path(tmp)), \
+                    mock.patch.dict(os.environ, {"SAPPER_CONSOLE_USERS": ""}):
+                users = sapper._resolve_console_users(self._args())
+            self.assertIn("admin", users)
+            self.assertEqual(users["admin"]["role"], "admin")
+
+    def test_explicit_users_file_wins_over_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            default = Path(tmp) / ".sapper" / "users.json"
+            default.parent.mkdir(parents=True)
+            default.write_text(json.dumps({"from_default": {"role": "admin"}}), encoding="utf-8")
+            explicit = Path(tmp) / "explicit.json"
+            explicit.write_text(json.dumps({"from_explicit": {"role": "viewer"}}), encoding="utf-8")
+            with mock.patch.object(sapper.Path, "home", lambda: Path(tmp)), \
+                    mock.patch.dict(os.environ, {"SAPPER_CONSOLE_USERS": ""}):
+                users = sapper._resolve_console_users(self._args(str(explicit)))
+            self.assertEqual(list(users), ["from_explicit"])
+
+    def test_env_users_beat_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            default = Path(tmp) / ".sapper" / "users.json"
+            default.parent.mkdir(parents=True)
+            default.write_text(json.dumps({"from_default": {"role": "admin"}}), encoding="utf-8")
+            with mock.patch.object(sapper.Path, "home", lambda: Path(tmp)), \
+                    mock.patch.dict(os.environ, {"SAPPER_CONSOLE_USERS": json.dumps({"env": {}})}):
+                users = sapper._resolve_console_users(self._args())
+            self.assertEqual(list(users), ["env"])
+
+    def test_no_users_means_open_dev_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(sapper.Path, "home", lambda: Path(tmp)), \
+                    mock.patch.dict(os.environ, {"SAPPER_CONSOLE_USERS": ""}):
+                self.assertEqual(sapper._resolve_console_users(self._args()), {})
