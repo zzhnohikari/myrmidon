@@ -10,6 +10,12 @@ ENGINES="${SAPPER_ENGINES:-$DATA/engines.json}"
 
 mkdir -p "$ROOTS" "$DATA/.sapper"
 
+# console-user 的默认落点是 $HOME/.sapper/users.json（镜像里即 $DATA/.sapper/）。
+# 两条路径都认，避免"账号建了但控制台还是开放模式"的静默失效。
+if [[ ! -f "$USERS" && -f "$DATA/.sapper/users.json" ]]; then
+  USERS="$DATA/.sapper/users.json"
+fi
+
 echo "[console] data   = $DATA"
 echo "[console] roots  = $ROOTS"
 echo "[console] port   = $PORT"

@@ -3945,6 +3945,10 @@ def _console_serve(roots: list[Path], args) -> int:
             users = json.loads(os.environ["SAPPER_CONSOLE_USERS"])
         except json.JSONDecodeError as exc:
             raise FGError(f"SAPPER_CONSOLE_USERS 不是合法 JSON: {exc}") from exc
+    elif (Path.home() / ".sapper" / "users.json").exists():
+        # console-user 默认写这里：不显式给 --users 也要生效，
+        # 否则"建了账号但控制台仍是开放模式"是静默失效
+        users = _load_users(Path.home() / ".sapper" / "users.json")
     auth_required = bool(users)
     sessions: dict[str, dict] = {}
     sessions_lock = threading.Lock()
