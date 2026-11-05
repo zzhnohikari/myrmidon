@@ -1,0 +1,12 @@
+{
+  "id": "kb061",
+  "title": "CVE-2025-55182 React2Shell Next.js/React RSC 反序列化 RCE",
+  "description": "",
+  "detail": "影响 react-server-dom-webpack/parcel/turbopack 19.0.0/19.1.0/19.1.1/19.2.0 与 Next.js 15.x(<=15.5.6)/16.0.6 (Next 侧 CVE-2025-66478)，补丁 React 19.2.1/19.1.2/19.0.1、Next 15.5.7 等。\n识别：App Router 页面存在 self.__next_f、$Sreact.*、Vary: rsc；即便无业务 Server Action 也可触发。\n利用：POST 到真实页面路由(不是会 307 的 /) multipart，头 Next-Action: <任意>、Accept: text/x-component、Next-Router-State-Tree: [\"\\\"\"\\\"]；Flight 反序列化原型污染 -> Function 构造器 -> process.mainModule.require(\"child_process\").execSync(cmd)。公开 PoC: lowercasenumbers/cve-2025-55182 exploit.py（--check / -c / --exfil HOST:PORT 回连 nc）。\n注意：目标常无出网，但到攻击机 VPN 地址可能可达；用 --exfil 验证执行。",
+  "commands": [],
+  "tags": [
+    "cve"
+  ],
+  "source": null,
+  "created_at": "2026-11-05T04:54:05Z"
+}

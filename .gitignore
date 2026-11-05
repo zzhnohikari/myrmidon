@@ -30,3 +30,8 @@ HANDOVER.md
 PREP-INTERVIEW.md
 docker/ENV-COMMANDER.md
 COMMANDER-HANDOVER.md
+
+# Myrmidon 交付物：手册 HTML 需要入库（上面的 *.html 规则是给本地快照用的）
+!docs/使用手册.html
+# 旧版模板备份只留本地
+lib/view_template.v1-*.bak

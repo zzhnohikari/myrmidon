@@ -1,0 +1,12 @@
+{
+  "id": "kb058",
+  "title": "Content-Encoding: gzip 绕过请求体特征 WAF",
+  "description": "",
+  "detail": "WAF/API 网关若只对明文请求体做关键字检测，可把同一表单/JSON 请求体 gzip 压缩并加头 Content-Encoding: gzip；后端 PHP/框架若支持 gzdecode(或自动解压) 会按原语义执行。验证方法：同一恶意载荷明文应得 403/406，gzip 应得后端响应(302/200 应用错误页/反射)。e1-06 实例：明文 username=admin' OR 1=1 -- x -> nginx 403 153B；gzip 同载荷 -> 302 dashboard.php。也可尝试 deflate/br 或 double-gzip。",
+  "commands": [],
+  "tags": [
+    "web"
+  ],
+  "source": null,
+  "created_at": "2026-11-05T01:21:48Z"
+}

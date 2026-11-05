@@ -1,0 +1,13 @@
+{
+  "id": "kb059",
+  "title": "PHP XXE WAF bypass via UTF-16 encoding",
+  "description": "libxml XXE 场景下，WAF 用 preg_match 按原始字节匹配 <!DOCTYPE/<!ENTITY/file:// 时，将整个 XML 体编码为 UTF-16LE(带 BOM) 即可绕过，libxml 仍能正常解析。",
+  "detail": null,
+  "commands": [],
+  "tags": [
+    "xxe",
+    "waf-bypass"
+  ],
+  "source": "challenge a-07 / 10.0.163.50",
+  "created_at": "2026-11-05T02:44:22Z"
+}

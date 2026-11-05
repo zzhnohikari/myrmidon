@@ -1,0 +1,43 @@
+# sapper 控制台交付镜像
+#
+# 只装控制台需要的东西：Python 3 + Node + claude CLI。
+# 渗透工具链（nmap/pwntools 等）在独立的 agent 镜像里；如果客户要跑
+# 真实工具，改用 docker/Dockerfile（Kali 底座）并在 compose 里替换 image。
+FROM node:22-bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    HOME=/data \
+    TZ=Asia/Shanghai \
+    LANG=C.UTF-8
+
+# 直连镜像源，避免宿主机代理把 build 拖死（与主 Dockerfile 同一套经验）
+RUN env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    apt-get update && \
+    env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    apt-get install -y --no-install-recommends python3 procps curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# 模型 CLI（控制台唯一的"外部引擎"）
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code && \
+    claude --version
+
+WORKDIR /app
+COPY lib/ /app/lib/
+COPY templates/ /app/templates/
+COPY kb/ /app/kb/
+COPY docs/ /app/docs/
+COPY docker/console-entrypoint.sh /usr/local/bin/sapper-console-entrypoint
+
+RUN chmod +x /usr/local/bin/sapper-console-entrypoint /app/lib/sapper.py && \
+    ln -sf /app/lib/sapper.py /usr/local/bin/sapper && \
+    mkdir -p /data/roots /data/.sapper
+
+EXPOSE 8890
+VOLUME ["/data"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8890/api/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/sapper-console-entrypoint"]

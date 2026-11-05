@@ -18,10 +18,13 @@ RUN env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
         binwalk steghide exiftool redis-tools default-mysql-client postgresql-client \
         gdb checksec libgmp-dev libmpfr-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --no-cache-dir --break-system-packages pycryptodome sympy ROPgadget \
-    && (pip3 install --no-cache-dir --break-system-packages ropper \
+    && env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    pip3 install --no-cache-dir --break-system-packages pycryptodome sympy ROPgadget \
+    && (env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+        pip3 install --no-cache-dir --break-system-packages ropper \
         || echo "WARN: ropper skipped (py3.12 build issue) - ROPgadget covers it") \
-    && (pip3 install --no-cache-dir --break-system-packages gmpy2 z3-solver \
+    && (env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+        pip3 install --no-cache-dir --break-system-packages gmpy2 z3-solver \
         || echo "WARN: gmpy2/z3 unavailable - continuing")
 
 # Codex CLI harness for --engine codex workers (experimental tier, SKILL 4.9).

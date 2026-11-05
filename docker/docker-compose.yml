@@ -1,0 +1,48 @@
+# sapper 控制台交付编排
+#   cp .env.example .env   # 填模型网关
+#   docker compose up -d --build
+#
+# 首次部署后生成账号：
+#   docker compose exec console sapper console-user add admin --password '强密码' --file /data/users.json
+#   docker compose restart console
+services:
+  console:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.console
+    image: sapper-console:latest
+    container_name: sapper-console
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8890:8890"     # 只绑本机；要用 Nginx 反代 + HTTPS 对外
+    environment:
+      TZ: Asia/Shanghai
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      # 跑分平台（也可在页面「设置 → 任务凭证」里配）
+      BENCHMARK_BASE_URL: ${BENCHMARK_BASE_URL:-}
+      BENCHMARK_TOKEN: ${BENCHMARK_TOKEN:-}
+    volumes:
+      - ./data:/data              # 任务根 / 配置 / 日志 全在 /data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8890/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ---- 可选：容器内拨 VPN（Linux 宿主推荐；macOS 请用 Linux VM）----
+  # vpn:
+  #   image: dperson/openvpn-client:latest
+  #   cap_add: [NET_ADMIN]
+  #   devices: ["/dev/net/tun"]
+  #   volumes: ["./vpn:/vpn:ro"]
+  #   command: -f "" -r 10.0.0.0/8
+  #   restart: unless-stopped
+  #
+  # 然后给 console 加 network_mode: service:vpn（两者共享网络栈）。

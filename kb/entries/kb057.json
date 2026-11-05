@@ -1,0 +1,18 @@
+{
+  "id": "kb057",
+  "title": "Python RestrictedUnpickler 白名单逃逸（getattr 链式 RCE）",
+  "description": "find_class 只拦 GLOBAL；白名单含 getattr/type 即可链式取 __globals__ 恢复 os",
+  "detail": "Python RestrictedUnpickler 白名单逃逸（getattr 链式利用）\n\n原理：pickle 的 find_class 只拦截 GLOBAL 操作码引用的 (module, name)，\n但白名单里若允许 builtins.getattr / builtins.type，\ngetattr 返回的对象不再受白名单约束 —— 可以链式访问任意属性，\n最终拿到 __globals__ / __subclasses__ 里的 os、subprocess 等敏感对象。\n\n判断：先枚举白名单。构造 STACK_GLOBAL(b'builtins', name) 二进制片段逐个试探，\n服务端会返回 \"Forbidden: <module>.<name> — only whitelisted classes allowed\"，\n非 Forbidden 即在白名单内。\n\n逃逸链（Python 3.11）：\n1. getattr(type, '__base__')            -> <class 'object'>\n2. getattr(object, '__subclasses__')()   -> 全部子类列表（本例 490 个）\n3. 取一个纯 Python 类的 __init__.__globals__ 恢复 os 模块\n   本例用 os._wrap_close（第 141 项）-> __init__ -> __globals__['popen']\n   其他可尝试: warnings.catch_warnings, subprocess.Popen, functools.partial,\n               abc.ABCMeta, types.SimpleNamespace\n4. os.popen(cmd).read() 读 flag\n\n手工构造 pickle 的坑（本例实测踩了 4 个）：\n- 必须以 PROTO(0x80 0x04) 开头，且结尾要有 STOP(0x2e)，否则 EOFError\n- REDUCE 栈顺序：callable -> MARK('(') -> args -> TUPLE('t') -> REDUCE('R')\n  （MARK 必须在参数之前，不是之后）\n- 嵌套表达式要保证整个片段只产生 1 个栈元素\n- SHORT_BINUNICODE(0x8c) 长度前缀是 1 字节，名字长度需 <= 255\n\n危害：受限反序列化 + getattr/type 白名单 = 等价 RCE。\n修复：白名单不要放 getattr/type；禁止 REDUCE 任意可调用对象；用沙箱解释器；\n禁用 pickle 改用 JSON；必要时做 pickle 的 opcode 校验。",
+  "commands": [
+    "python3 -c \"import base64,pickle;print(base64.b64encode(pickle.dumps(obj,protocol=4)).decode())\""
+  ],
+  "tags": [
+    "deser",
+    "rce",
+    "python",
+    "pickle",
+    "bypass"
+  ],
+  "source": "e2-02 tsec-runs",
+  "created_at": "2026-11-04T17:32:28Z"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "kb060",
+  "title": "PHP POST 参数名点号归一化与未闭合中括号回退",
+  "description": "",
+  "detail": "PHP(5.6实测)把 $POST 顶层变量名中的 '.' 和空格替换为 '_'，故表单字段 php_code.execute 只能得到 $_POST['php_code_execute']（urlencoded 与 multipart 均如此），应用若读 $_POST['php_code.execute'] 则天然不可命中。唯一近似绕过：发送未闭合中括号名 php_code[.execute → 回退为顶层键 php_code_.execute（[→_，点号保留）；[php_code.execute] / []php_code.execute → $_POST 为空。验证方法：FPM/CLI 下打印 var_export($_POST)。",
+  "commands": [],
+  "tags": [
+    "web"
+  ],
+  "source": null,
+  "created_at": "2026-11-05T03:56:07Z"
+}

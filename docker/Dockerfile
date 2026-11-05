@@ -73,9 +73,21 @@ RUN npm install -g --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claud
     && npm cache clean --force
 
 # --- python extras ----------------------------------------------------------
-RUN pip3 install --no-cache-dir --break-system-packages \
-        requests pyjwt "unicorn==2.0.1.post1" pwntools \
-        pycryptodome sympy ROPgadget ropper
+# pip goes TUNA + DIRECT for the same reason apt above does: the docker daemon
+# injects a 7890 proxy into build containers and it stalls on big wheels.
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# Kali rolling is on py3.14 now: ropper's `filebytes` dep uses ast.Str (removed
+# in 3.14) and cannot build — ROPgadget covers the same need (the commander
+# layer ships the same fallback). unicorn is not pinned to 2.0.1.post1 any
+# more: it has no py3.14 wheel and would force a from-source build.
+RUN env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    pip3 install --no-cache-dir --break-system-packages \
+        requests pyjwt pycryptodome sympy ROPgadget \
+    && (env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+        pip3 install --no-cache-dir --break-system-packages pwntools \
+        || env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+        pip3 install --no-cache-dir --break-system-packages unicorn \
+        || echo "WARN: pwntools/unicorn unavailable — continuing (stdlib+sympy covers most crypto)")
 # heavy/compiled extras: failure here must not kill the build (kb mentions them
 # as optional; stdlib+sympy covers most crypto)
 RUN pip3 install --no-cache-dir --break-system-packages gmpy2 z3-solver \
@@ -98,6 +110,34 @@ RUN useradd -m -s /bin/bash agent \
 
 COPY docker/entrypoint.sh /usr/local/bin/sapper-entrypoint
 RUN chmod +x /usr/local/bin/sapper-entrypoint
+
+USER root
+# --- py3.14 compat fixes (kali rolling is on python 3.14 now) ---------------
+# pwntools still pins unicorn!=2.1.3,!=2.1.4, so pip falls back to older sdists
+# that have no py3.14 wheels and need cmake — install pwntools --no-deps against
+# the unicorn 2.1.x already present and supply its runtime deps explicitly.
+# binutils: --no-install-recommends above dropped it (gdb only Recommends it);
+# pwn.asm needs `as`, and amd64 CTF targets need the x86-64 cross assembler.
+RUN env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    pip3 install --no-cache-dir --break-system-packages \
+        pwntools --no-deps pysocks paramiko mako plumbum pyelftools pyserial \
+        rpyc sortedcontainers intervaltree psutil tqdm python-dateutil \
+    || echo "WARN: pwntools unavailable — continuing (stdlib+sympy covers most crypto)"
+RUN env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    apt-get update \
+    && env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    apt-get install -y --no-install-recommends binutils binutils-x86-64-linux-gnu binutils-i686-linux-gnu cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker Desktop (userns) refuses to exec binaries carrying file capabilities —
+# kali ships nmap with cap_net_raw=eip — and stripping them needs CAP_SETFCAP,
+# which the runtime doesn't grant either. Rewriting the inode via cp drops
+# security.capability; nmap then falls back to connect scans.
+RUN cp /usr/lib/nmap/nmap /usr/lib/nmap/nmap.nocaps \
+    && rm /usr/lib/nmap/nmap \
+    && mv /usr/lib/nmap/nmap.nocaps /usr/lib/nmap/nmap \
+    && chmod 0755 /usr/lib/nmap/nmap \
+    && nmap --version | head -1
 
 USER agent
 WORKDIR /work

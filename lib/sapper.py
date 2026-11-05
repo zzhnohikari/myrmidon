@@ -1371,7 +1371,9 @@ def extract_json_object(text: str) -> dict:
 # --------------------------------------------------------------------------- #
 _QUOTA_ERROR_RE = re.compile(
     r"insufficient|balance|quota|exceeded|arrearage|billing|payment|"
-    r"401|unauthorized|invalid.{0,12}api.?key|欠费|余额",
+    r"401|unauthorized|invalid.{0,12}api.?key|欠费|余额|"
+    # transient throttling — retry (and rotate the key when a pool exists)
+    r"rate.?limit|429|too many requests|overloaded|try again|service unavailable|502|503|504",
     re.IGNORECASE,
 )
 
@@ -1457,7 +1459,7 @@ def run_claude(
     if append_system:
         argv += ["--append-system-prompt", append_system]
     engine = prefix[0]
-    attempts = 1 + max(0, int(os.environ.get("SAPPER_RETRY_MODEL", "0")))
+    attempts = 1 + max(0, int(os.environ.get("SAPPER_RETRY_MODEL", "2")))
     last_error: FGError | None = None
     for attempt in range(1, attempts + 1):
         try:
@@ -1485,6 +1487,30 @@ def run_claude(
     raise last_error
 
 
+def _engine_error_detail(proc) -> str:
+    """claude CLI prints its JSON error envelope to STDOUT even when it exits
+    non-zero; reading only stderr makes every failure look like `exited 1:`."""
+    detail = ""
+    try:
+        env = json.loads(proc.stdout or "")
+        if isinstance(env, dict):
+            bits = []
+            if env.get("api_error_status"):
+                bits.append(f"api_error_status={env['api_error_status']}")
+            if env.get("terminal_reason"):
+                bits.append(f"reason={env['terminal_reason']}")
+            msg = str(env.get("result") or "").strip()
+            if msg:
+                bits.append(msg[:400])
+            detail = " | ".join(bits)
+    except (json.JSONDecodeError, TypeError):
+        detail = (proc.stdout or "").strip()[:300]
+    err = (proc.stderr or "").strip()[:300]
+    if err:
+        detail = (detail + " / stderr: " + err) if detail else ("stderr: " + err)
+    return detail or "(无输出)"
+
+
 def _run_engine_once(argv, prompt, timeout, cwd, engine) -> dict:
     try:
         proc = subprocess.run(
@@ -1501,7 +1527,7 @@ def _run_engine_once(argv, prompt, timeout, cwd, engine) -> dict:
         raise FGError(f"{engine} dispatch timed out after {timeout}s")
     if proc.returncode != 0:
         raise FGError(
-            f"{engine} exited {proc.returncode}: {proc.stderr.strip()[:500]}"
+            f"{engine} exited {proc.returncode}: {_engine_error_detail(proc)}"
         )
     try:
         envelope = json.loads(proc.stdout)
@@ -1717,11 +1743,49 @@ def cmd_hint(args) -> int:
 # --------------------------------------------------------------------------- #
 # flag ledger — record/dedupe/submit flags; shared arena loader
 # --------------------------------------------------------------------------- #
-def _load_arena_module():
+def _arena_provider(store: Store) -> str:
+    """Which platform adapter to use.
+
+    Order: SAPPER_ARENA_PROVIDER env > arena.json "provider" > tsecbench.
+    A provider is a sibling module `arena_<provider>.py` exposing the same
+    ArenaClient contract (list/start/hint/submit/close) — that is the ONLY
+    file a new competition platform needs.
+    """
+    env = os.environ.get("SAPPER_ARENA_PROVIDER", "").strip()
+    if env:
+        return env
+    # bench passes a PER-CHALLENGE store for submission, while the arena config
+    # lives at the run root — walk up until we find one.
+    candidates = [
+        store.root / "arena.json",                          # <store>/arena.json
+        store.root.parent.parent / ".sapper" / "arena.json",  # <run>/<code>/.sapper -> <run>/.sapper
+        Path.cwd() / ".sapper" / "arena.json",
+        Path.cwd() / "arena.json",
+    ]
+    for cand in candidates:
+        try:
+            cfg = json.loads(cand.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(cfg, dict) and cfg.get("provider"):
+            return str(cfg["provider"]).strip()
+        if isinstance(cfg, dict) and cfg.get("base_url"):
+            return "tsecbench"          # legacy config, no provider key
+    return "tsecbench"
+
+
+def _load_arena_module(provider: str = "tsecbench"):
     import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "_sapper_arena", Path(__file__).resolve().parent / "arena.py"
-    )
+    name = "arena.py" if provider in ("", "tsecbench", "default") else f"arena_{provider}.py"
+    path = Path(__file__).resolve().parent / name
+    if not path.exists():
+        raise FGError(
+            f"未知的比赛平台适配器 {provider!r}：找不到 {name}。"
+            f"新增平台 = 在 lib/ 下放一个 arena_{provider}.py（实现 list_challenges / "
+            f"start_challenge / get_hint / submit_flag / close_challenge），"
+            f"再在 arena.json 里写 {{\"provider\": \"{provider}\"}} 即可。"
+        )
+    spec = importlib.util.spec_from_file_location(f"_sapper_arena_{provider}", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -1738,7 +1802,8 @@ def _load_arena_module():
 
 
 def _arena_client(store: Store):
-    arena = _load_arena_module()
+    provider = _arena_provider(store)
+    arena = _load_arena_module(provider)
     try:
         return arena.ArenaClient.load(store.root)
     except arena.ArenaError as exc:
@@ -2010,7 +2075,7 @@ def cmd_bench(args) -> int:
     root.mkdir(parents=True, exist_ok=True)
     deadline = deadline_from_args(args)
     templates_dir = _resolve_templates_dir(args)
-    cli = [sys.executable, str(Path(__file__).resolve())]
+    cli = [sys.executable, "-u", str(Path(__file__).resolve())]
     engine_args = ["--model", args.model]
     if args.skip_permissions:
         engine_args.append("--skip-permissions")
@@ -2044,7 +2109,8 @@ def cmd_bench(args) -> int:
                 started = client.start_challenge(code)
             except FGError as exc:
                 if "max active" in str(exc).lower():
-                    print("[bench] active-container cap reached; closing the oldest and retrying next round")
+                    _bench_reap_completed_containers(client)
+                    print("[bench] active-container cap reached; reaped finished containers, retrying next round")
                     break
                 print(f"[bench] {code}: cannot start ({exc})")
                 continue
@@ -2102,6 +2168,25 @@ def cmd_bench(args) -> int:
     return 0
 
 
+def _bench_reap_completed_containers(client) -> list[str]:
+    """已通关但容器没关的题会白占并发名额（实测 c-09 卡住第三个 worker）。"""
+    closed = []
+    try:
+        fresh = client.list_challenges()
+    except FGError:
+        return closed
+    for ch in fresh:
+        if ch.get("is_completed") and ch.get("container_status") == "available":
+            code = str(ch.get("unique_code"))
+            try:
+                client.close_challenge(code)
+                closed.append(code)
+                print(f"[bench] reaped completed container {code} (was holding a concurrency slot)")
+            except FGError:
+                pass
+    return closed
+
+
 def _bench_parallel(args, client, root, cli, engine_args, todo, deadline) -> int:
     """Parallel mode: keep up to --parallel per-challenge workers running.
 
@@ -2150,6 +2235,7 @@ def _bench_parallel(args, client, root, cli, engine_args, todo, deadline) -> int
             except FGError as exc:
                 if "max active" in str(exc).lower():
                     pending.insert(0, ch)  # try again after a slot frees
+                    _bench_reap_completed_containers(client)
                     print("[bench] platform active-container cap reached; waiting for a slot")
                     break
                 print(f"[bench] {code}: cannot start ({exc}); will retry next round")
@@ -2382,7 +2468,7 @@ def cmd_command(args) -> int:
     model = args.model
     timeout = args.timeout
     skip = args.skip_permissions
-    cli = [sys.executable, str(Path(__file__).resolve())]
+    cli = [sys.executable, "-u", str(Path(__file__).resolve())]
     passthrough = ["--model", model]
     if skip:
         passthrough.append("--skip-permissions")
@@ -3630,7 +3716,14 @@ def _view_serve(store: Store, args) -> int:
                 return
             if self.path == "/" or self.path == "/index.html":
                 tpl = _load_view_template()
-                tpl = tpl.replace('"__POLL_URL__"', f'"{poll_path}"')
+                # replace ONLY the assignment: the same quoted literal is also
+                # the "unset" sentinel inside fetchGraph()'s comparison, and
+                # str.replace would rewrite that too — making the guard always
+                # true and the live view render nothing.
+                tpl = tpl.replace(
+                    'const POLL_URL = "__POLL_URL__";',
+                    f'const POLL_URL = "{poll_path}";',
+                )
                 body = tpl.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -3675,6 +3768,1528 @@ def _try_open_url(url: str) -> None:
             subprocess.Popen([opener, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------- #
+# console — web control room: missions + graph ops + job runner (stdlib only)
+#
+# One server over a missions root (<root>/<mission>/.sapper per graph). Graph
+# mutations call the Store methods in-process (each one takes the flock, so
+# handler threads serialize correctly); auto/dispatch/verify run as detached
+# subprocesses with stdout captured to a log file, so the web tier never
+# blocks on a model call.
+# --------------------------------------------------------------------------- #
+_CONSOLE_EMPTY_GRAPH = {
+    "project": {"status": "none", "goal": ""},
+    "facts": [], "intents": [], "open_intents": [], "done_intents": [],
+    "hints": [], "fact_ids": [],
+}
+_CONSOLE_ENV_KEYS = (
+    "SAPPER_MODEL", "SAPPER_TIMEOUT",
+    "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+    "BENCHMARK_BASE_URL", "BENCHMARK_TOKEN",
+)
+
+
+def _pbkdf2_hash(password: str, salt: bytes | None = None) -> str:
+    import base64
+    import hashlib
+    salt = salt or os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120_000)
+    return "pbkdf2_sha256$120000$" + base64.b64encode(salt).decode() \
+        + "$" + base64.b64encode(dk).decode()
+
+
+def _pbkdf2_verify(password: str, encoded: str) -> bool:
+    import base64
+    import hashlib
+    try:
+        algo, rounds, salt_b64, hash_b64 = encoded.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        import hmac
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                                 base64.b64decode(salt_b64), int(rounds))
+        return hmac.compare_digest(dk, base64.b64decode(hash_b64))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _load_users(path: Path | None) -> dict:
+    """users.json: {"<user>": {"password": "<pbkdf2>", "role": "admin|viewer",
+    "roots": "*" | ["root-a", ...]}}"""
+    if not path:
+        return {}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FGError(f"无法读取用户文件 {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise FGError(f"用户文件 {path} 必须是对象")
+    return data
+
+
+class _AuthError(Exception):
+    def __init__(self, message: str, status: int = 401):
+        super().__init__(message)
+        self.status = status
+
+
+def _console_mission_dir(root: Path, name: str) -> Path:
+    import re
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name or ""):
+        raise FGError(f"bad mission name {name!r}: use lowercase letters/digits/-/_")
+    return root / name
+
+
+def _console_dirs(path: Path) -> list[Path]:
+    try:
+        return sorted(c for c in path.iterdir()
+                      if c.is_dir() and not c.name.startswith("."))
+    except OSError:
+        return []
+
+
+def _console_is_root(path: Path) -> bool:
+    if (path / ".sapper-root").exists():
+        return True
+    return any((c / ".sapper" / "project.json").exists() for c in _console_dirs(path))
+
+
+def _console_discover_roots(seed: list[Path]) -> list[Path]:
+    """A 'root' is a directory holding one mission per subdir.
+
+    Accepts the roots themselves or a parent of roots, so one console can show
+    every engagement on the box: `--root ~/work` finds tsec-runs, sapper-missions,
+    tsec-runs-ds-* and lists them all in one sidebar.
+    """
+    out: list[Path] = []
+    for raw in seed:
+        p = Path(raw).resolve()
+        if not p.exists():
+            p.mkdir(parents=True, exist_ok=True)
+        if _console_is_root(p):
+            out.append(p)
+            continue
+        found = [c for c in _console_dirs(p) if _console_is_root(c)]
+        out.extend(found or [p])
+    seen, uniq = set(), []
+    for p in out:
+        if p not in seen:
+            seen.add(p)
+            uniq.append(p)
+    return uniq
+
+
+def _console_root_key(path: Path) -> str:
+    """Stable id for a root: a short hash of its absolute path.
+
+    Root *indices* shift whenever discovery order changes (a new folder sorts
+    earlier), which would silently repoint every stored mission key — so keys
+    carry this fingerprint instead.
+    """
+    import hashlib
+    return "r" + hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:10]
+
+
+def _console_root_of_key(roots: list[Path], key: str) -> tuple[Path, str]:
+    """key = '<rootId>:<mission>' (legacy '<index>:<mission>' still accepted)."""
+    if ":" in key:
+        prefix, name = key.split(":", 1)
+        if prefix.isdigit():                      # legacy numeric key
+            idx = int(prefix)
+            if not 0 <= idx < len(roots):
+                raise FGError(f"mission key {key!r} points at an unknown root")
+            return roots[idx], name
+        for r in roots:
+            if _console_root_key(r) == prefix:
+                return r, name
+        raise FGError(f"mission key {key!r} points at an unknown root")
+    return roots[0], key
+
+
+def _console_store_for(roots: list[Path], key: str) -> "Store":
+    root, name = _console_root_of_key(roots, key)
+    store = Store(_console_mission_dir(root, name) / ".sapper")
+    store.require()
+    return store
+
+
+def _console_serve(roots: list[Path], args) -> int:
+    """Serve the console web UI + JSON API via stdlib http.server."""
+    import http.server
+    import re
+    import secrets
+    import shlex
+    import shutil
+    import signal
+    import socketserver
+    import subprocess
+    import threading
+
+    roots = [p.resolve() for p in roots]
+    for p in roots:
+        p.mkdir(parents=True, exist_ok=True)
+    host = args.host
+    port = args.port
+    token = secrets.token_hex(12)
+    log_dir = roots[0] / ".console" / "jobs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # ---- 鉴权：配置了用户文件就强制登录；没配置=本机开发模式 ----
+    users = {}
+    if getattr(args, "users", None):
+        users = _load_users(Path(args.users))
+    elif os.environ.get("SAPPER_CONSOLE_USERS"):
+        try:
+            users = json.loads(os.environ["SAPPER_CONSOLE_USERS"])
+        except json.JSONDecodeError as exc:
+            raise FGError(f"SAPPER_CONSOLE_USERS 不是合法 JSON: {exc}") from exc
+    auth_required = bool(users)
+    sessions: dict[str, dict] = {}
+    sessions_lock = threading.Lock()
+
+    def visible_roots(user: dict | None) -> list[Path]:
+        if not auth_required or not user:
+            return list(roots)
+        scope = user.get("roots", "*")
+        if scope in ("*", None):
+            return list(roots)
+        allowed = set(scope or [])
+        return [r for r in roots if r.name in allowed]
+
+    jobs: dict[str, dict] = {}
+    jobs_lock = threading.Lock()
+    bench_started: dict[int, dict] = {}   # pid -> meta for benches we launched
+
+    def engines_list() -> list[dict]:
+        cands = []
+        if getattr(args, "engines", None):
+            cands.append(Path(args.engines))
+        cands += [roots[0] / "engines.json", Path.cwd() / "engines.json"]
+        for p in cands:
+            try:
+                if p and p.exists():
+                    data = json.loads(p.read_text())
+                    if isinstance(data, list):
+                        return data
+            except (OSError, json.JSONDecodeError):
+                continue
+        return []
+
+    def engines_path() -> Path:
+        if getattr(args, "engines", None):
+            return Path(args.engines)
+        for p in (roots[0] / "engines.json", Path.cwd() / "engines.json"):
+            if p.exists():
+                return p
+        return roots[0] / "engines.json"
+
+    # Machine-wide console settings: configured ONCE, works from any root, so a
+    # human never re-enters the platform token per directory.
+    settings_path = Path.home() / ".sapper" / "console.json"
+    legacy_settings = roots[0] / ".console" / "settings.json"
+
+    def settings_read() -> dict:
+        target = settings_path if settings_path.exists() else legacy_settings
+        try:
+            data = json.loads(target.read_text())
+            data = data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        return data
+
+    def _mask(entry: dict) -> dict:
+        """Never echo a secret back to the page — only a hint."""
+        if not isinstance(entry, dict):
+            return {}
+        out = {k: v for k, v in entry.items() if k != "token"}
+        tok = entry.get("token") or ""
+        out["has_token"] = bool(tok)
+        out["token_hint"] = tok[-4:] if tok else ""
+        return out
+
+    def settings_public() -> dict:
+        cur = settings_read()
+        defaults = dict(cur.get("defaults") or {})
+        if defaults.get("gateway_token"):
+            defaults["gateway_token_hint"] = str(defaults["gateway_token"])[-4:]
+            defaults.pop("gateway_token")
+        return {
+            "gateway": _mask(cur.get("gateway") or {}),
+            "benchmark": _mask(cur.get("benchmark") or {}),
+            "defaults": defaults,
+            "path": str(settings_path),
+        }
+
+    # 用户手动新建的根（可能暂时是空的）也要在重启后恢复
+    try:
+        for p_str in (settings_read().get("extra_roots") or []):
+            p_extra = Path(p_str)
+            if p_extra.exists() and p_extra not in roots:
+                roots.append(p_extra)
+    except Exception:  # noqa: BLE001 — 恢复失败不能挡住控制台启动
+        pass
+
+    def settings_write(patch: dict) -> dict:
+        cur = settings_read()
+        for section in ("gateway", "benchmark"):
+            if isinstance(patch.get(section), dict):
+                merged = dict(cur.get(section) or {})
+                incoming = dict(patch[section])
+                tok = incoming.get("token")
+                if tok:                      # empty string == keep existing secret
+                    merged["token"] = str(tok)
+                incoming.pop("token", None)
+                merged.update(incoming)
+                merged["saved_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                cur[section] = merged
+        for k, v in patch.items():          # plain keys (pinned, last_test, …)
+            if k not in ("gateway", "benchmark"):
+                cur[k] = v
+        # keep legacy file in sync once, then always read/write the global one
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(cur, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
+        settings_path.chmod(0o600)
+        return settings_public()
+
+    def bench_credentials(body: dict) -> tuple[str, str]:
+        """Token/base come from the request, else the saved machine-wide config."""
+        saved = (settings_read().get("benchmark") or {})
+        token = (body.get("token") or "").strip() or (saved.get("token") or "").strip()
+        base = ((body.get("base_url") or "").strip()
+                or (saved.get("base_url") or "").strip()
+                or "https://tsecbench.zc.tencent.com")
+        return token, base
+
+    def platform_test(token: str, base: str) -> dict:
+        import urllib.request
+        url = base.rstrip("/") + "/openapi/v1/challenges"
+        req = urllib.request.Request(url, headers={
+            "BENCHMARK_TOKEN": token, "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 — surface any failure verbatim
+            return {"ok": False, "error": str(exc)}
+        items = payload if isinstance(payload, list) else (
+            payload.get("data") if isinstance(payload, dict) else [])
+        if not isinstance(items, list):
+            return {"ok": False, "error": "平台返回了无法识别的内容"}
+        valid = [i for i in items if isinstance(i, dict)]
+        done = sum(1 for i in valid if i.get("is_completed"))
+        running = sum(1 for i in valid if i.get("container_status") == "available"
+                      and not i.get("is_completed"))
+        total_flags = sum(int(i.get("flag_count") or 0) for i in valid)
+        score = sum(int(i.get("total_score") or 0) for i in valid if i.get("is_completed"))
+        return {"ok": True, "challenges": len(valid), "completed": done,
+                "running": running, "pending": len(valid) - done - running,
+                "flags": total_flags, "score": score,
+                "codes": {str(i.get("unique_code")): ("done" if i.get("is_completed")
+                           else "running" if i.get("container_status") == "available"
+                           else "pending") for i in valid}}
+
+    def mission_rows() -> list[dict]:
+        rows = []
+        for ri, r in enumerate(list(roots)):
+            try:
+                sub = _board_summary(r)
+            except Exception:  # noqa: BLE001 — one bad root must not blank the page
+                sub = []
+            for row in sub:
+                row["root"] = r.name
+                row["root_index"] = ri
+                row["root_path"] = str(r)
+                row["key"] = f"{_console_root_key(r)}:{row['name']}"
+                rows.append(row)
+        # ---- 真实状态：project.status 只是"本地是否判定完成"，不等于在跑 ----
+        try:
+            plat = platform_status()
+        except Exception:  # noqa: BLE001
+            plat = None
+        codes = (plat or {}).get("codes") or {}
+        workers = set()
+        try:
+            for b in bench_rows():
+                workers.update(b.get("workers") or [])
+        except Exception:  # noqa: BLE001
+            pass
+        live_jobs = set()
+        try:
+            with jobs_lock:
+                live_jobs = {j["mission"] for j in jobs.values() if j["proc"].poll() is None}
+        except Exception:  # noqa: BLE001
+            pass
+        for row in rows:
+            name = row["name"]
+            if codes.get(name) == "done":
+                row["status"] = "completed"          # 平台说了算
+                row["platform_done"] = True
+            row["running"] = (name in workers) or (row["key"] in live_jobs)
+
+        pins = set(settings_read().get("pinned") or [])
+        for row in rows:
+            row["pinned"] = row["key"] in pins
+        rows.sort(key=lambda x: x.get("last_activity") or "", reverse=True)  # newest first
+        rows.sort(key=lambda x: 0 if x.get("pinned") else 1)                  # stable: pinned on top
+        return rows
+
+    def overview(allowed: set | None = None) -> dict:
+        rows = mission_rows()
+        if allowed is not None:
+            rows = [r for r in rows if r.get("root") in allowed]
+        _plat = platform_status()
+        return {
+            "roots": len(roots),
+            "running": sum(1 for r in rows if r.get("running")),
+            "missions": len(rows),
+            "active": sum(1 for r in rows if r.get("status") == "active" and not r.get("running")),
+            "completed": sum(1 for r in rows if r.get("status") == "completed"),
+            "flags_submitted": sum(int(r.get("flags_submitted") or 0) for r in rows),
+            "flags_recorded": sum(int(r.get("flags_recorded") or 0) for r in rows),
+            "open_intents": sum(int(r.get("open_intents") or 0) for r in rows),
+            "benches": [dict(b, platform=_plat, running_codes=[
+                c for c, st in ((_plat or {}).get("codes") or {}).items() if st == "running"
+            ] if _plat else []) for b in bench_rows()],
+            "platform": _plat,
+            "running_codes": [c for c, st in ((_plat or {}).get("codes") or {}).items()
+                              if st == "running"] if _plat else [],
+            "recent": rows[:12],
+        }
+
+    platform_cache: dict = {"ts": 0.0, "data": None}
+
+    def platform_status(ttl: int = 30):
+        now = time.time()
+        cached = platform_cache.get("data")
+        if cached is not None and now - platform_cache.get("ts", 0) < ttl:
+            return cached
+        st = settings_read()
+        bm = st.get("benchmark") or {}
+        tok = (bm.get("token") or "").strip()
+        base = (bm.get("base_url") or "https://tsecbench.zc.tencent.com").strip()
+        if not tok:
+            return None
+        try:
+            data = platform_test(tok, base)
+        except Exception as exc:  # noqa: BLE001 — status must never break the panel
+            data = {"ok": False, "error": str(exc)[:200]}
+        platform_cache["ts"] = now
+        platform_cache["data"] = data
+        return platform_cache["data"]
+
+    def bench_rows() -> list[dict]:
+        """Every live `sapper bench` on the box, with its model and progress."""
+        try:
+            out = subprocess.run(["ps", "-axo", "pid=,etime=,command="],
+                                 capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        rows = []
+        for line in out.splitlines():
+            # must be an actual sapper bench invocation, not a grep/ps that
+            # merely mentions the words (that bug made the panel show ghosts)
+            if not re.search(r"/sapper(?:\.py)?\s+bench\b", line) or "console" in line:
+                continue
+            m = re.match(r"\s*(\d+)\s+(\S+)\s+(.*)$", line)
+            if not m:
+                continue
+            pid, etime, cmd = int(m.group(1)), m.group(2), m.group(3)
+            rm = re.search(r"--root\s+(\S+)", cmd)
+            root_p = rm.group(1).rstrip("/") if rm else ""
+            mm_min = re.search(r"--minutes\s+(\d+)", cmd)
+            minutes = int(mm_min.group(1)) if mm_min else 0
+            elapsed_s = 0
+            try:
+                parts = [int(x) for x in etime.replace("-", ":").split(":")]
+                if len(parts) == 2:
+                    elapsed_s = parts[0] * 60 + parts[1]
+                elif len(parts) == 3:
+                    elapsed_s = parts[0] * 3600 + parts[1] * 60 + parts[2]
+                elif len(parts) == 4:
+                    elapsed_s = parts[0] * 86400 + parts[1] * 3600 + parts[2] * 60 + parts[3]
+            except ValueError:
+                elapsed_s = 0
+            par = re.search(r"--parallel\s+(\d+)", cmd)
+            parallel = int(par.group(1)) if par else 1
+            model, tail, done, total = None, "", 0, 0
+            if root_p:
+                logp = Path(root_p) / "bench.log"
+                try:
+                    size = logp.stat().st_size
+                    with open(logp, "rb") as f:
+                        f.seek(max(0, size - 8000))
+                        txt = f.read().decode("utf-8", errors="replace")
+                    mm = re.findall(r"model=([^\s]+)", txt)
+                    if mm:
+                        model = mm[-1]
+                    tail = txt[-420:]
+                except OSError:
+                    pass
+                # 最近一条进度 → 人话（供状态面板显示"现在在做什么"）
+                action = ""
+                for line in reversed(tail.splitlines()):
+                    m2 = re.search(r"\[auto\] step [\d.]+\s*(reason|explore)\s*(i\d+)?", line)
+                    if m2:
+                        action = ("规划下一步" if m2.group(1) == "reason"
+                                  else f"执行子任务 {m2.group(2) or ''}".strip())
+                        break
+                    m3 = re.search(r"\[bench\] (\S+) (started|COMPLETE|closed)", line)
+                    if m3:
+                        action = {"started": f"开始第 {m3.group(1)} 题",
+                                  "COMPLETE": f"{m3.group(1)} 已通关",
+                                  "closed": f"{m3.group(1)} 已收尾"}[m3.group(2)]
+                        break
+                current, current_ts = "", 0.0
+                try:
+                    for pj in Path(root_p).glob("*/.sapper/project.json"):
+                        total += 1
+                        if json.loads(pj.read_text()).get("status") == "completed":
+                            done += 1
+                        # the challenge being worked on = most recently touched graph
+                        try:
+                            ts = pj.stat().st_mtime
+                        except OSError:
+                            continue
+                        if ts > current_ts:
+                            current_ts, current = ts, pj.parent.parent.name
+                except (OSError, json.JSONDecodeError):
+                    pass
+            # 本地真实在跑的 worker（平台容器可能已回收但工人还在收尾）
+            workers = []
+            if root_p:
+                pat = re.compile(re.escape(root_p.rstrip("/")) + r"/([^/\s]+)/\.sapper auto")
+                for pline in out.splitlines():
+                    wm = pat.search(pline)
+                    if wm:
+                        workers.append(wm.group(1))
+            rows.append({
+                "pid": pid, "etime": etime, "root": root_p, "workers": sorted(set(workers)),
+                "root_name": Path(root_p).name if root_p else "?",
+                "model": model, "completed": done, "total": total,
+                "current": current, "action": action, "parallel": parallel,
+                "minutes": minutes, "elapsed_s": elapsed_s,
+                "tail": tail, "managed": pid in bench_started,
+            })
+        return rows
+
+    def kill_tree(pid: int, sig: int) -> None:
+        try:
+            kids = subprocess.run(["pgrep", "-P", str(pid)],
+                                  capture_output=True, text=True, timeout=5).stdout.split()
+        except (OSError, subprocess.SubprocessError):
+            kids = []
+        for k in kids:
+            try:
+                kill_tree(int(k), sig)
+            except (ValueError, OSError):
+                pass
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+    def spawn_bench(body: dict) -> dict:
+        bench_token, base_url = bench_credentials(body)
+        if not bench_token and (body.get("provider") or "tsecbench") in ("", "tsecbench", "default"):
+            raise FGError("还没有 BENCHMARK_TOKEN —— 到「设置 → 任务凭证」保存一次即可，"
+                          "之后每个新任务只需在平台拿到 token 后覆盖它")
+        if not base_url.startswith(("http://", "https://")):
+            raise FGError("BENCHMARK_BASE_URL 必须是 http(s) 地址")
+        model = (body.get("model") or "").strip()
+        if not model:
+            raise FGError("必须选一个模型")
+        sapper_bin = (body.get("sapper_bin") or "").strip()
+        if sapper_bin and not Path(sapper_bin).exists():
+            raise FGError(f"引擎脚本不存在: {sapper_bin}")
+        root_name = (body.get("root_name") or "").strip().lower() \
+            or "bench-" + time.strftime("%m%d-%H%M%S")
+        import re as _re
+        if not _re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", root_name):
+            raise FGError(f"任务根名 {root_name!r} 非法：小写字母/数字/-/_")
+        parent = Path((body.get("parent_root") or "").strip() or roots[0])
+        bench_root = parent / root_name
+        resume = bool(body.get("resume"))
+        if bench_root.exists() and any(bench_root.glob("*/.sapper")) and not resume:
+            raise FGError(f"{bench_root} 已有数据。要继续打这个任务根，请勾选「继续已有任务根」；"
+                          f"要开新的一轮请换个名字")
+        bench_root.mkdir(parents=True, exist_ok=True)
+        minutes = int(body.get("minutes") if body.get("minutes") is not None else 300)
+        minutes_per = int(body.get("minutes_per") or 10)
+        max_steps = int(body.get("max_steps") or 10)
+        try:
+            parallel = max(1, min(5, int(body.get("parallel") or 1)))
+        except (TypeError, ValueError):
+            parallel = 1
+        cmd = [sys.executable, "-u", str(Path(__file__).resolve()), "bench",
+               "--root", str(bench_root)]
+        if minutes > 0:                      # 0/空 = 不限总时长，跑到全部通关或手动停止
+            cmd += ["--minutes", str(minutes)]
+        cmd += ["--minutes-per-challenge", str(minutes_per),
+                "--max-steps", str(max_steps), "--model", model]
+        if parallel > 1:
+            cmd += ["--parallel", str(parallel), "--poll-seconds", "5"]
+        if body.get("skip_permissions"):
+            cmd.append("--skip-permissions")
+        provider = (body.get("provider") or "tsecbench").strip() or "tsecbench"
+        # None-tsecbench platforms describe themselves in <root>/.sapper/arena.json
+        if provider not in ("", "tsecbench", "default"):
+            sdir = bench_root / ".sapper"
+            sdir.mkdir(parents=True, exist_ok=True)
+            arena_cfg = {"provider": provider, "base_url": base_url, "token": bench_token}
+            if isinstance(body.get("targets"), dict):
+                arena_cfg["targets"] = body["targets"]
+            (sdir / "arena.json").write_text(
+                json.dumps(arena_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        env = os.environ.copy()
+        env["SAPPER_ARENA_PROVIDER"] = provider
+        env["BENCHMARK_BASE_URL"] = base_url
+        env["BENCHMARK_TOKEN"] = bench_token
+        env.setdefault("SAPPER_TIMEOUT", "900")
+        if sapper_bin:
+            env["SAPPER_BIN"] = sapper_bin
+        log_path = bench_root / "bench.log"
+        with open(log_path, "ab") as logf:
+            proc = subprocess.Popen(
+                cmd, stdout=logf, stderr=subprocess.STDOUT, cwd=str(bench_root),
+                env=env, stdin=subprocess.DEVNULL, start_new_session=True,
+            )
+        bench_started[proc.pid] = {
+            "pid": proc.pid, "root": str(bench_root), "model": model,
+            "started": time.strftime("%Y-%m-%d %H:%M:%S"), "proc": proc,
+            "log_path": log_path, "token_tail": bench_token[-4:],
+        }
+        # make the new root browsable without a restart
+        if bench_root not in roots:
+            roots.append(bench_root)
+        return {"pid": proc.pid, "root": str(bench_root), "model": model,
+                "parallel": parallel, "resume": resume,
+                "log": str(log_path), "root_index": roots.index(bench_root)}
+
+    def job_public(j: dict) -> dict:
+        proc = j["proc"]
+        state = "running" if proc.poll() is None else "exited"
+        try:
+            size = j["log_path"].stat().st_size
+        except OSError:
+            size = 0
+        model = None
+        argv = j.get("argv") or []
+        if "--model" in argv:
+            try:
+                model = argv[argv.index("--model") + 1]
+            except (ValueError, IndexError):
+                model = None
+        return {
+            "id": j["id"], "mission": j["mission"], "type": j["type"],
+            "started": j["started"], "state": state, "model": model,
+            "returncode": proc.poll(), "log_size": size, "argv": argv,
+        }
+
+    def spawn_job(mission: str, body: dict) -> dict:
+        mroot, mname = _console_root_of_key(roots, mission)
+        store_dir = _console_mission_dir(mroot, mname) / ".sapper"
+        if not (store_dir / "project.json").exists():
+            raise FGError(f"mission {mission!r} has no graph — create it first")
+        jtype = body.get("type")
+        if jtype not in ("auto", "reason", "dispatch", "verify"):
+            raise FGError("job type must be auto|reason|dispatch|verify")
+        with jobs_lock:
+            for j in jobs.values():
+                if j["mission"] == mission and j["proc"].poll() is None:
+                    raise FGError(
+                        f"mission {mission!r} already has a running job {j['id']} — stop it first"
+                    )
+        env = os.environ.copy()
+        env_add = {}
+        for key in _CONSOLE_ENV_KEYS:
+            val = (body.get("env") or {}).get(key)
+            if val:
+                env[key] = str(val)
+                if key in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"):
+                    env_add[key] = str(val)
+        engine = env.get("SAPPER_BIN", "claude")
+        if shutil.which(engine.split()[0]) is None:
+            raise FGError(
+                f"engine {engine.split()[0]!r} not found on PATH — install the claude CLI "
+                f"or set SAPPER_BIN / the engine env in the console"
+            )
+        engine_bin = shutil.which(engine.split()[0])
+        jid = secrets.token_hex(6)
+        # Per-job gateway override: claude CLI's ~/.claude/settings.json `env`
+        # BEATS process environment variables, so exporting ANTHROPIC_* into the
+        # job env is NOT enough. A `--settings <file>` flag does beat it — wrap
+        # the engine so page-supplied gateways actually take effect.
+        if env_add:
+            override = log_dir / f"engine-{jid}.settings.json"
+            override.write_text(json.dumps({"env": env_add}), encoding="utf-8")
+            override.chmod(0o600)
+            wrapper = log_dir / f"engine-{jid}.sh"
+            wrapper.write_text(
+                "#!/bin/bash\nexec " + shlex.quote(engine_bin)
+                + " --settings " + shlex.quote(str(override)) + ' "$@"\n',
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+            env["SAPPER_BIN"] = str(wrapper)
+        cmd = [sys.executable, "-u", str(Path(__file__).resolve()), "--store", str(store_dir)]
+        # NOTE: --model/--skip-permissions live on the SUBCOMMAND parsers, so the
+        # subcommand token must come before them.
+        sub: list[str] = []
+        if jtype == "auto":
+            sub.append("auto")
+            minutes = int(body.get("minutes") or 0)
+            if minutes > 0:
+                sub += ["--minutes", str(minutes)]
+            steps = int(body.get("max_steps") or 0)
+            if steps > 0:
+                sub += ["--max-steps", str(steps)]
+        elif jtype == "reason":
+            sub += ["dispatch", "reason"]
+        elif jtype == "dispatch":
+            iid = (body.get("intent") or "").strip()
+            if not iid:
+                raise FGError("dispatch job needs an intent id")
+            sub += ["dispatch", iid, "--claim"]
+        else:  # verify
+            iid = (body.get("intent") or "").strip()
+            if not iid:
+                raise FGError("verify job needs an intent id")
+            sub += ["dispatch", "verify", "--intent", iid]
+        model = (body.get("model") or "").strip()
+        if model:
+            sub += ["--model", model]
+        if body.get("skip_permissions"):
+            sub += ["--skip-permissions"]
+        cmd += sub
+        log_path = log_dir / f"{jid}.log"
+        with open(log_path, "ab") as logf:
+            proc = subprocess.Popen(
+                cmd, stdout=logf, stderr=subprocess.STDOUT,
+                cwd=str(store_dir.parent), env=env,
+                stdin=subprocess.DEVNULL, start_new_session=True,
+            )
+        entry = {
+            "id": jid, "mission": mission, "type": jtype, "proc": proc,
+            "started": time.strftime("%Y-%m-%d %H:%M:%S"), "log_path": log_path,
+            "argv": cmd, "sigint": False,
+        }
+        with jobs_lock:
+            jobs[jid] = entry
+            finished = [k for k, v in jobs.items() if v["proc"].poll() is not None]
+            if len(finished) > 40:
+                for k in sorted(finished, key=lambda k: jobs[k]["started"])[:-40]:
+                    jobs.pop(k, None)
+        return job_public(entry)
+
+    def stop_job(jid: str) -> dict:
+        with jobs_lock:
+            j = jobs.get(jid)
+        if j is None:
+            raise FGError(f"unknown job {jid}")
+        proc = j["proc"]
+        if proc.poll() is not None:
+            return job_public(j)
+        try:
+            pgid = os.getpgid(proc.pid)
+            if j["sigint"]:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                os.killpg(pgid, signal.SIGINT)
+                j["sigint"] = True
+        except ProcessLookupError:
+            pass
+        return job_public(j)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, code: int, obj, headers: dict | None = None) -> None:
+            body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _body(self) -> dict:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 1_000_000:
+                raise FGError("request body too large")
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                obj = json.loads(raw.decode("utf-8") or "{}")
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise FGError(f"bad JSON body: {exc}") from exc
+            if not isinstance(obj, dict):
+                raise FGError("JSON body must be an object")
+            return obj
+
+        def _guard_token(self) -> None:
+            if self.headers.get("X-Sapper-Token") != token:
+                raise FGError("bad or missing X-Sapper-Token (stale page? reload)")
+
+        # ---- auth helpers ----
+        def _session(self) -> dict | None:
+            raw = self.headers.get("Cookie") or ""
+            for part in raw.split(";"):
+                k, _, v = part.strip().partition("=")
+                if k == "sapper_session":
+                    with sessions_lock:
+                        return sessions.get(v)
+            return None
+
+        def _user(self) -> dict | None:
+            s = self._session()
+            return (s.get("user") if s else None)
+
+        def _require(self, write: bool = False) -> dict | None:
+            if not auth_required:
+                return {"user": "local", "role": "admin", "roots": "*"}
+            s = self._session()
+            if not s or s.get("exp", 0) < time.time():
+                raise _AuthError("未登录或登录已过期", 401)
+            role = (s.get("user") or {}).get("role", "viewer")
+            if write and role != "admin":
+                raise _AuthError("当前账号只有查看权限", 403)
+            return s.get("user")
+
+        def _admin_only(self) -> dict | None:
+            u = self._require()
+            if auth_required and (u or {}).get("role") != "admin":
+                raise _AuthError("该功能仅管理员可用", 403)
+            return u
+
+        def _scope_ok(self, user: dict | None, root_name: str) -> bool:
+            if not auth_required:
+                return True
+            scope = (user or {}).get("roots", "*")
+            return scope in ("*", None) or root_name in (scope or [])
+
+        def do_GET(self):
+            import urllib.parse
+            path = self.path.split("?")[0]
+            query = urllib.parse.parse_qs(self.path.split("?")[1]) if "?" in self.path else {}
+            try:
+                if path not in ("/", "/index.html", "/api/health", "/api/session"):
+                    _adm = path.startswith(("/api/bench", "/api/models", "/api/engines",
+                                            "/api/settings", "/api/system", "/api/jobs",
+                                            "/api/roots", "/api/readiness"))
+                    if _adm:
+                        self._admin_only()
+                    else:
+                        self._require()
+                if path == "/" or path == "/index.html":
+                    tpl = _load_view_template()
+                    tpl = tpl.replace(
+                        'const POLL_URL = "__POLL_URL__";',
+                        'const POLL_URL = "/api/missions/-/graph";',
+                    )
+                    tpl = tpl.replace(
+                        "/*__CONSOLE_MODE__*/ false /*__END__*/",
+                        "/*__CONSOLE_MODE__*/ true /*__END__*/",
+                    )
+                    tpl = tpl.replace(
+                        'const API_TOKEN = "__API_TOKEN__";',
+                        f'const API_TOKEN = "{token}";',
+                    )
+                    body = tpl.encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                if path == "/api/health":
+                    self._send(200, {"ok": True, "auth": auth_required,
+                                     "roots": len(roots)})
+                    return
+                if path == "/api/session":
+                    u = self._user()
+                    self._send(200, {"authenticated": bool(u) or not auth_required,
+                                     "user": (u or {}).get("user") if u else ("local" if not auth_required else None),
+                                     "role": (u or {}).get("role") if u else ("admin" if not auth_required else None),
+                                     "roots": (u or {}).get("roots") if u else "*",
+                                     "auth_required": auth_required})
+                    return
+                if path == "/api/missions":
+                    _u = self._require()
+                    rows = mission_rows()
+                    with jobs_lock:
+                        runmap = {
+                            j["mission"]: job_public(j)
+                            for j in jobs.values() if j["proc"].poll() is None
+                        }
+                    for row in rows:
+                        row["job"] = runmap.get(row["key"])
+                    vis = visible_roots(_u)
+                    vis_names = {r.name for r in vis}
+                    rows = [r for r in rows if r.get("root") in vis_names]
+                    self._send(200, {"missions": rows,
+                                     "roots": [{"index": i, "path": str(p), "name": p.name}
+                                               for i, p in enumerate(roots) if p in vis]})
+                    return
+                if path == "/api/overview":
+                    _u = self._require()
+                    vis = {r.name for r in visible_roots(_u)}
+                    data = overview(vis)
+                    if auth_required and (_u or {}).get("role") != "admin":
+                        data["benches"] = []
+                        data["platform"] = None
+                        data["running_codes"] = []
+                    self._send(200, data)
+                    return
+                if path == "/api/settings":
+                    self._send(200, {"settings": settings_public(),
+                                     "settings_path": str(settings_path)})
+                    return
+                if path == "/api/system":
+                    import platform
+                    self._send(200, {
+                        "version": __version__,
+                        "python": sys.version.split()[0],
+                        "platform": platform.platform(),
+                        "claude": shutil.which("claude") or "",
+                        "sapper": str(Path(__file__).resolve()),
+                        "engines_file": str(engines_path()),
+                        "settings_file": str(settings_path),
+                        "roots": [{"index": i, "path": str(p), "name": p.name}
+                                  for i, p in enumerate(roots)],
+                    })
+                    return
+                if path == "/api/roots":
+                    self._send(200, {"roots": [{"index": i, "path": str(p), "name": p.name}
+                                               for i, p in enumerate(roots)]})
+                    return
+                if path == "/api/engines":
+                    self._send(200, {"engines": engines_list(),
+                                     "path": str(engines_path())})
+                    return
+                if path == "/api/readiness":
+                    import urllib.request
+                    st = settings_read()
+                    bm = st.get("benchmark") or {}
+                    vpn = {"ok": False, "detail": "未检测"}
+                    try:
+                        with urllib.request.urlopen("http://10.0.100.58", timeout=3) as resp:
+                            body = json.loads(resp.read().decode("utf-8"))
+                        vpn = {"ok": body.get("status") == "ok",
+                               "detail": body.get("client_ip") or ""}
+                    except Exception as exc:  # noqa: BLE001
+                        vpn = {"ok": False, "detail": str(exc)[:80]}
+                    eng = engines_list()
+                    self._send(200, {
+                        "vpn": vpn,
+                        "credential": {"ok": bool(bm.get("token")),
+                                       "hint": (bm.get("token") or "")[-4:],
+                                       "base_url": bm.get("base_url") or ""},
+                        "engines": {"ok": len(eng) > 0, "count": len(eng)},
+                        "roots": {"ok": len(roots) > 0, "count": len(roots)},
+                    })
+                    return
+                if path == "/api/bench":
+                    rows = bench_rows()
+                    plat = platform_status()
+                    running_codes = ([c for c, st in (plat.get("codes") or {}).items()
+                                      if st == "running"] if plat and plat.get("ok") else [])
+                    for r in rows:
+                        r["platform"] = plat
+                        r["running_codes"] = running_codes
+                    self._send(200, {"benches": rows,
+                                     "platform": plat,
+                                     "running_codes": running_codes,
+                                     "concurrency": (rows[0]["parallel"] if rows else 0)})
+                    return
+                if path == "/api/bench/log":
+                    root_p = (query.get("root") or [""])[0]
+                    if not root_p:
+                        raise FGError("root is required")
+                    logp = Path(root_p) / "bench.log"
+                    if not logp.exists():
+                        self._send(200, {"offset": 0, "chunk": ""})
+                        return
+                    offset = int((query.get("since") or ["0"])[0] or 0)
+                    size = logp.stat().st_size
+                    if offset < 0 or offset > size:
+                        offset = 0
+                    with open(logp, "rb") as f:
+                        f.seek(offset)
+                        chunk = f.read(65536)
+                    self._send(200, {"offset": offset + len(chunk),
+                                     "chunk": chunk.decode("utf-8", errors="replace")})
+                    return
+                if path == "/api/jobs":
+                    with jobs_lock:
+                        allj = [job_public(j) for j in jobs.values()]
+                    mission = (query.get("mission") or [""])[0]
+                    if mission:
+                        allj = [j for j in allj if j["mission"] == mission]
+                    allj.sort(key=lambda j: j["started"], reverse=True)
+                    self._send(200, {"jobs": allj})
+                    return
+                if path.startswith("/api/jobs/") and path.endswith("/log"):
+                    jid = path[len("/api/jobs/"):-len("/log")]
+                    with jobs_lock:
+                        j = jobs.get(jid)
+                    if j is None:
+                        raise FGError(f"unknown job {jid}")
+                    offset = int((query.get("since") or ["0"])[0] or 0)
+                    try:
+                        size = j["log_path"].stat().st_size
+                    except OSError:
+                        size = 0
+                    if offset < 0 or offset > size:
+                        offset = 0
+                    with open(j["log_path"], "rb") as f:
+                        f.seek(offset)
+                        chunk = f.read(65536)
+                    self._send(200, {
+                        "job": job_public(j), "offset": offset + len(chunk),
+                        "chunk": chunk.decode("utf-8", errors="replace"),
+                    })
+                    return
+                seg = path.split("/")  # /api/missions/<key>/...
+                if len(seg) >= 4 and seg[1] == "api" and seg[2] == "missions":
+                    key = urllib.parse.unquote(seg[3])
+                    _rg, _ = _console_root_of_key(roots, key) if key != "-" else (roots[0], "")
+                    if key != "-" and not self._scope_ok(self._user(), _rg.name):
+                        raise _AuthError("无权访问该目录", 403)
+                    if len(seg) == 5 and seg[4] == "graph":
+                        if key == "-":
+                            self._send(200, _CONSOLE_EMPTY_GRAPH)
+                            return
+                        store = _console_store_for(roots, key)
+                        with store.locked():
+                            g = build_graph_view(store)
+                        self._send(200, g)
+                        return
+                    if len(seg) == 5 and seg[4] == "frontier":
+                        self._send(200, {"frontier": frontier(_console_store_for(roots, key))})
+                        return
+                    if len(seg) == 5 and seg[4] == "validate":
+                        self._send(200, {"errors": validate_graph(_console_store_for(roots, key))})
+                        return
+                self._send(404, {"error": f"no route {path}"})
+            except _AuthError as exc:
+                self._send(exc.status, {"error": str(exc), "auth": True})
+            except FGError as exc:
+                self._send(400, {"error": str(exc)})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as exc:  # noqa: BLE001 — surface to the page, don't kill the thread
+                self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
+
+        def do_POST(self):
+            path = self.path.split("?")[0]
+            seg = path.split("/")  # leading "" keeps indices aligned with do_GET
+            try:
+                if path not in ("/api/login", "/api/logout"):
+                    self._require(write=True)
+                    self._guard_token()      # 登录前接口没有页面 token，靠 SameSite cookie 防 CSRF
+                if path == "/api/login":
+                    body = self._body()
+                    uname = (body.get("username") or "").strip()
+                    pw = body.get("password") or ""
+                    ent = users.get(uname)
+                    if not ent or not _pbkdf2_verify(pw, ent.get("password") or ""):
+                        raise _AuthError("用户名或密码错误", 401)
+                    sid = secrets.token_urlsafe(24)
+                    with sessions_lock:
+                        sessions[sid] = {
+                            "user": {"user": uname, "role": ent.get("role", "viewer"),
+                                     "roots": ent.get("roots", "*")},
+                            "exp": time.time() + 12 * 3600,
+                        }
+                    self._send(200, {"ok": True, "user": uname,
+                                     "role": ent.get("role", "viewer")},
+                               headers={"Set-Cookie":
+                                        f"sapper_session={sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200"})
+                    return
+                if path == "/api/logout":
+                    raw = self.headers.get("Cookie") or ""
+                    for part in raw.split(";"):
+                        k, _, v = part.strip().partition("=")
+                        if k == "sapper_session":
+                            with sessions_lock:
+                                sessions.pop(v, None)
+                    self._send(200, {"ok": True},
+                               headers={"Set-Cookie": "sapper_session=; Path=/; Max-Age=0"})
+                    return
+                if path == "/api/missions":
+                    body = self._body()
+                    goal = (body.get("goal") or "").strip()
+                    if not goal:
+                        raise FGError("goal is required")
+                    name = (body.get("name") or "").strip().lower()
+                    if not name:
+                        name = "m-" + time.strftime("%m%d-%H%M%S")
+                    rn = (body.get("root_name") or "").strip()
+                    if rn:
+                        target_root = next((r for r in roots if r.name == rn), None)
+                        if target_root is None:
+                            raise FGError(f"目录 {rn!r} 不存在")
+                    else:
+                        try:
+                            target_root = roots[int(body.get("root_index") or 0)]
+                        except (ValueError, IndexError):
+                            raise FGError("bad root_index")
+                    mdir = _console_mission_dir(target_root, name)
+                    if mdir.exists():
+                        raise FGError(f"mission {name!r} already exists")
+                    mdir.mkdir(parents=True)
+                    mstore = Store(mdir / ".sapper")
+                    mstore.init(origin=(body.get("origin") or "web"), goal=goal)
+                    # 播一条起始事实：否则图里只有 goal，reason 提出的意图会因
+                    # “必须依赖事实”全部被拒，任务永远起不来
+                    mstore.add_fact(description=f"起始情报：{goal}", creator="web",
+                                    title="任务起点", kind="note")
+                    self._send(200, {"name": name,
+                                     "key": f"{_console_root_key(target_root)}:{name}"})
+                    return
+                if path == "/api/roots":
+                    body = self._body()
+                    name = (body.get("name") or "").strip().lower()
+                    if not name:
+                        raise FGError("目录名不能为空")
+                    import re as _re
+                    if not _re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name):
+                        raise FGError("目录名只能用小写字母/数字/-/_")
+                    parent = Path((body.get("parent") or "").strip() or roots[0].parent)
+                    target = parent / name
+                    if target.exists():
+                        raise FGError(f"目录已存在：{target}")
+                    target.mkdir(parents=True)
+                    (target / ".sapper-root").write_text(
+                        "created by sapper console\n", encoding="utf-8")
+                    if target not in roots:
+                        roots.append(target)
+                    st = settings_read()
+                    extras = [str(x) for x in (st.get("extra_roots") or [])]
+                    if str(target) not in extras:
+                        extras.append(str(target))
+                    settings_write({"extra_roots": extras})
+                    self._send(200, {"name": name, "path": str(target),
+                                     "root_index": roots.index(target)})
+                    return
+                if path == "/api/settings":
+                    self._send(200, {"settings": settings_write(self._body()),
+                                     "settings_path": str(settings_path)})
+                    return
+                if path == "/api/bench/test":
+                    body = self._body()
+                    tok, base = bench_credentials(body)
+                    if not tok:
+                        raise FGError("还没有可测试的 token——先在下面保存一次")
+                    self._send(200, platform_test(tok, base))
+                    return
+                if path == "/api/engines":
+                    body = self._body()
+                    engines = body.get("engines")
+                    if not isinstance(engines, list):
+                        raise FGError("engines 必须是数组")
+                    clean = []
+                    for e in engines:
+                        if not isinstance(e, dict) or not (e.get("name") or "").strip():
+                            continue
+                        clean.append({
+                            "name": str(e.get("name")).strip(),
+                            "model": str(e.get("model") or "").strip(),
+                            "sapper_bin": str(e.get("sapper_bin") or "").strip(),
+                            "gateway_base": str(e.get("gateway_base") or "").strip(),
+                            "note": str(e.get("note") or "").strip(),
+                        })
+                    target = engines_path()
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(json.dumps(clean, ensure_ascii=False, indent=2),
+                                      encoding="utf-8")
+                    self._send(200, {"engines": clean, "path": str(target)})
+                    return
+                if len(seg) == 5 and seg[1] == "api" and seg[2] == "missions" and seg[4] == "action":
+                    import shutil as _sh
+                    import urllib.parse as _up
+                    key = _up.unquote(seg[3])
+                    body = self._body()
+                    action = (body.get("action") or "").strip()
+                    mroot, mname = _console_root_of_key(roots, key)
+                    if not self._scope_ok(self._user(), mroot.name):
+                        raise _AuthError("无权访问该目录", 403)
+                    mdir = _console_mission_dir(mroot, mname)
+                    if not mdir.exists():
+                        raise FGError(f"任务 {mname!r} 不存在")
+                    if action == "rename":
+                        new_name = (body.get("name") or "").strip().lower()
+                        _console_mission_dir(mroot, new_name)      # validate slug
+                        target = mroot / new_name
+                        if target.exists():
+                            raise FGError(f"名称 {new_name!r} 已被占用")
+                        mdir.rename(target)
+                        self._send(200, {"ok": True, "name": new_name,
+                                         "key": f"{_console_root_key(mroot)}:{new_name}"})
+                        return
+                    if action == "delete":
+                        trash = mroot / ".trash"
+                        trash.mkdir(exist_ok=True)
+                        dest = trash / f"{mname}-{time.strftime('%Y%m%d-%H%M%S')}"
+                        _sh.move(str(mdir), str(dest))
+                        self._send(200, {"ok": True, "trashed": str(dest),
+                                         "hint": "已移入回收站 .trash，可从 Finder 恢复"})
+                        return
+                    if action == "set_goal":
+                        goal = (body.get("goal") or "").strip()
+                        if not goal:
+                            raise FGError("目标不能为空")
+                        store = Store(mdir / ".sapper")
+                        store.require()
+                        with store.locked():
+                            proj = store.load_project()
+                            proj["goal"] = goal
+                            store.save_project(proj)
+                            gf = store.get_fact("goal")
+                            gf["description"] = goal
+                            atomic_write_json(store.facts_dir / "goal.json", gf)
+                        self._send(200, {"ok": True, "goal": goal})
+                        return
+                    if action == "pin":
+                        st = settings_read()
+                        pins = set(st.get("pinned") or [])
+                        if body.get("pinned", True):
+                            pins.add(key)
+                        else:
+                            pins.discard(key)
+                        settings_write({"pinned": sorted(pins)})
+                        self._send(200, {"ok": True, "pinned": sorted(pins)})
+                        return
+                    if action == "export":
+                        fmt = (body.get("format") or "json").strip()
+                        store = Store(mdir / ".sapper")
+                        store.require()
+                        with store.locked():
+                            g = build_graph_view(store)
+                        if fmt == "md":
+                            lines = [f"# {g['project'].get('goal','')}", "",
+                                     f"- 任务: `{mname}`", f"- 状态: {g['project'].get('status')}",
+                                     f"- 事实: {len(g['facts'])} · 意图: {len(g['intents'])} · 提示: {len(g['hints'])}",
+                                     "", "## 事实", ""]
+                            for f in g["facts"]:
+                                if f["id"] == "goal":
+                                    continue
+                                lines.append(f"### {f['id']} · {f.get('title') or ''}".rstrip())
+                                if f.get("kind"):
+                                    lines.append(f"- 类型: {f['kind']}")
+                                lines.append(f"- 概述: {f.get('description','')}")
+                                for k, v in (f.get("data") or {}).items():
+                                    lines.append(f"- {k}: {v}")
+                                lines.append("")
+                            lines += ["## 意图", ""]
+                            for i in g["intents"]:
+                                tgt = i.get("to") or "（未产出）"
+                                lines.append(f"- **{i['id']}** {i.get('title') or ''} "
+                                             f"[{i.get('status')}] from {','.join(i.get('from') or [])} → {tgt}")
+                            self._send(200, {"format": "md", "name": f"{mname}.md",
+                                             "content": "\n".join(lines)})
+                            return
+                        self._send(200, {"format": "json", "name": f"{mname}.json",
+                                         "content": json.dumps(g, ensure_ascii=False, indent=2)})
+                        return
+                    raise FGError(f"未知动作 {action!r}")
+                if path == "/api/system/reveal":
+                    body = self._body()
+                    target = Path((body.get("path") or "")).expanduser()
+                    if not target.exists():
+                        raise FGError(f"路径不存在: {target}")
+                    if shutil.which("open"):
+                        subprocess.Popen(["open", str(target)],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._send(200, {"ok": True, "path": str(target)})
+                    return
+                if path == "/api/engines/check":
+                    body = self._body()
+                    bin_path = (body.get("sapper_bin") or "").strip()
+                    model = (body.get("model") or "").strip()
+                    if not bin_path:
+                        raise FGError("引擎没有配置 wrapper 脚本路径")
+                    pb = Path(bin_path).expanduser()
+                    if not pb.exists():
+                        raise FGError(f"脚本不存在: {pb}")
+                    if not os.access(pb, os.X_OK):
+                        raise FGError(f"脚本没有执行权限: {pb}")
+                    self._send(200, {"ok": True, "path": str(pb), "model": model,
+                                     "hint": "wrapper 存在且可执行（不消耗模型额度）"})
+                    return
+                if path == "/api/bench/start":
+                    self._send(200, spawn_bench(self._body()))
+                    return
+                if path == "/api/bench/stop":
+                    body = self._body()
+                    try:
+                        pid = int(body.get("pid") or 0)
+                    except (TypeError, ValueError):
+                        raise FGError("bad pid")
+                    # only ever signal a process we have confirmed IS a bench run
+                    alive = {b["pid"] for b in bench_rows()}
+                    if pid not in alive:
+                        raise FGError(f"pid {pid} 不是正在运行的跑分进程")
+                    hard = bool(body.get("kill"))
+                    kill_tree(pid, signal.SIGKILL if hard else signal.SIGTERM)
+                    time.sleep(0.6)
+                    still = {b["pid"] for b in bench_rows()}
+                    if pid in still and not hard:
+                        kill_tree(pid, signal.SIGKILL)
+                    self._send(200, {"pid": pid, "stopped": True,
+                                     "hard": hard, "alive": pid in {b["pid"] for b in bench_rows()}})
+                    return
+                if path == "/api/jobs":
+                    body = self._body()
+                    mission = (body.get("mission") or "").strip()
+                    if not mission:
+                        raise FGError("mission is required")
+                    self._send(200, spawn_job(mission, body))
+                    return
+                if path == "/api/models":
+                    # server-side proxy for the gateway's model listing: the page
+                    # cannot fetch cross-origin gateways itself (no CORS).
+                    # Gateways differ on where the list lives (and DeepSeek's
+                    # /anthropic base has NO list at all — its OpenAI-style
+                    # root does), so try a fallback chain of candidates.
+                    import re as _re
+                    import urllib.request
+                    body = self._body()
+                    saved_gw = settings_read().get("gateway") or {}
+                    base = ((body.get("base_url") or "").strip()
+                            or (saved_gw.get("base_url") or "").strip()).rstrip("/")
+                    if not base.startswith(("http://", "https://")):
+                        raise FGError("还没有网关地址——到「设置 → 模型网关」保存一次，"
+                                      "或在拉取前手动填写 BASE URL")
+                    # 表单留空 = 用设置页保存的网关 token（页面只显示末四位，不会回填）
+                    tok = ((body.get("token") or "").strip()
+                           or (saved_gw.get("token") or "").strip())
+                    candidates = [base + "/v1/models", base + "/models"]
+                    m = _re.match(r"^(https?://[^/]+)", base)
+                    if m and m.group(1) != base:
+                        origin = m.group(1)
+                        candidates += [origin + "/v1/models", origin + "/models"]
+                    seen, tried = set(), []
+                    models = None
+                    for url in candidates:
+                        if url in seen:
+                            continue
+                        seen.add(url)
+                        headers = {"anthropic-version": "2023-06-01"}
+                        if tok:
+                            headers["x-api-key"] = tok
+                            headers["Authorization"] = "Bearer " + tok
+                        req = urllib.request.Request(url, headers=headers)
+                        try:
+                            with urllib.request.urlopen(req, timeout=8) as resp:
+                                payload = json.loads(resp.read().decode("utf-8"))
+                        except Exception as exc:
+                            tried.append(f"{url} → {exc}")
+                            continue
+                        data = payload.get("data") if isinstance(payload, dict) else None
+                        got = sorted({str(x.get("id")) for x in (data or [])
+                                      if isinstance(x, dict) and x.get("id")})
+                        if got:
+                            models = got
+                            break
+                        tried.append(f"{url} → 返回无列表")
+                    if not models:
+                        raise FGError(
+                            "拉取模型列表失败，试过的端点：\n" + "\n".join(tried)
+                            + "\n该网关可能不提供列表接口（如 DeepSeek 的 /anthropic 端点只有 /v1/messages）"
+                            "——直接在模型框手动输入模型名即可（DeepSeek 常用：deepseek-chat / deepseek-reasoner）"
+                        )
+                    self._send(200, {"models": models, "via": url})
+                    return
+                if path.startswith("/api/jobs/") and path.endswith("/stop"):
+                    jid = path[len("/api/jobs/"):-len("/stop")]
+                    self._send(200, stop_job(jid))
+                    return
+                # /api/missions/<key>/...
+                if len(seg) >= 4 and seg[1] == "api" and seg[2] == "missions":
+                    import urllib.parse as _up
+                    key = _up.unquote(seg[3])
+                    _r0, _ = _console_root_of_key(roots, key)
+                    if not self._scope_ok(self._user(), _r0.name):
+                        raise _AuthError("无权访问该目录", 403)
+                    creator = "web"
+                    if len(seg) == 5:
+                        sub = seg[4]
+                        body = self._body()
+                        creator = (body.get("creator") or creator)
+                        store = _console_store_for(roots, key)
+                        if sub == "fact":
+                            fact = store.add_fact(
+                                description=(body.get("description") or "").strip(),
+                                creator=creator,
+                                title=body.get("title") or None,
+                                doc=body.get("doc") or None,
+                                kind=body.get("kind") or None,
+                                data=body.get("data") or None,
+                            )
+                            self._send(200, {"fact": fact})
+                            return
+                        if sub == "intent":
+                            intent = store.add_intent(
+                                from_ids=list(body.get("from") or []),
+                                description=(body.get("description") or "").strip(),
+                                creator=creator,
+                                requires_confirmation=bool(body.get("requires_confirmation")),
+                                title=body.get("title") or None,
+                                doc=body.get("doc") or None,
+                            )
+                            self._send(200, {"intent": intent})
+                            return
+                        if sub == "hint":
+                            hint = store.add_hint(
+                                content=(body.get("content") or "").strip(), creator=creator,
+                            )
+                            self._send(200, {"hint": hint})
+                            return
+                        if sub == "flag":
+                            value = (body.get("value") or "").strip()
+                            if not value:
+                                raise FGError("flag value cannot be empty")
+                            existing = _find_flag_fact(store, value)
+                            if existing is not None:
+                                raise FGError(f"flag already recorded as {existing['id']}")
+                            challenge = (body.get("challenge") or "").strip()
+                            fact = store.add_fact(
+                                description=f"flag captured: {value}"
+                                            + (f" (challenge {challenge})" if challenge else ""),
+                                creator=creator,
+                                title=body.get("title") or "flag",
+                                kind="flag",
+                                data={"value": value, "challenge": challenge, "status": "recorded"},
+                            )
+                            self._send(200, {"fact": fact})
+                            return
+                        raise FGError(f"no route {path}")
+                    if len(seg) == 7 and seg[4] == "intent":
+                        iid, action = seg[5], seg[6]
+                        body = self._body()
+                        creator = (body.get("creator") or creator)
+                        store = _console_store_for(roots, key)
+                        if action == "claim":
+                            self._send(200, {"intent": store.claim_intent(
+                                iid, (body.get("worker") or "web").strip())})
+                            return
+                        if action == "release":
+                            self._send(200, {"intent": store.release_intent(
+                                iid, (body.get("worker") or "web").strip())})
+                            return
+                        if action == "confirm":
+                            self._send(200, {"intent": store.confirm_intent(iid)})
+                            return
+                        if action == "done":
+                            worker = (body.get("worker") or "web").strip()
+                            if not worker:
+                                raise FGError("worker is required for done")
+                            to = (body.get("to") or "").strip()
+                            if to:
+                                self._send(200, {"intent": store.conclude_intent(
+                                    iid, to, worker)})
+                                return
+                            result = (body.get("result") or "").strip()
+                            if not result:
+                                raise FGError("result text is required for done")
+                            fact, intent = store.conclude_with_new_fact(
+                                iid, result, worker,
+                                title=body.get("title") or None,
+                                doc=body.get("doc") or None,
+                                kind=body.get("kind") or None,
+                                data=body.get("data") or None,
+                            )
+                            self._send(200, {"fact": fact, "intent": intent})
+                            return
+                self._send(404, {"error": f"no route {path}"})
+            except _AuthError as exc:
+                self._send(exc.status, {"error": str(exc), "auth": True})
+            except FGError as exc:
+                self._send(400, {"error": str(exc)})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as exc:  # noqa: BLE001
+                self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
+
+    class Server(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+    url = f"http://{host}:{port}/"
+    for i, r in enumerate(roots):
+        print(f"[console] root #{i}                 →  {r}")
+    print(f"[console] control room           →  {url}")
+    print(f"[console] jobs log dir           →  {log_dir}")
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print("[console] WARNING: bound to a non-loopback host — anyone who reaches "
+              "this port can read the graph AND launch AI jobs on this machine.")
+    print("[console] Ctrl-C to stop.")
+    threading.Timer(0.4, _try_open_url, args=(url,)).start()
+
+    try:
+        with Server((host, port), Handler) as httpd:
+            httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[console] stopped.")
+    except OSError as exc:
+        raise FGError(f"could not bind {host}:{port}: {exc}")
+    return 0
+
+
+def cmd_console_user(args) -> int:
+    """Manage console login accounts (users.json)."""
+    import getpass
+    path = Path(args.file).expanduser()
+    data = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) or {}
+        except json.JSONDecodeError as exc:
+            raise FGError(f"{path} 不是合法 JSON: {exc}") from exc
+    if args.action == "list":
+        if not data:
+            print("(还没有账号)")
+        for name, ent in sorted(data.items()):
+            print(f"{name:20s} role={ent.get('role','viewer'):6s} roots={ent.get('roots','*')}")
+        return 0
+    if args.action == "add":
+        if not args.username:
+            raise FGError("需要用户名")
+        if args.username in data and not args.force:
+            raise FGError(f"账号 {args.username} 已存在（--force 覆盖）")
+        pw = args.password or getpass.getpass("密码: ")
+        if not pw:
+            raise FGError("密码不能为空")
+        roots = "*"
+        if args.roots and args.roots != "*":
+            roots = [x.strip() for x in args.roots.split(",") if x.strip()]
+        data[args.username] = {"password": _pbkdf2_hash(pw),
+                               "role": args.role, "roots": roots}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.chmod(0o600)
+        print(f"已写入 {path}：{args.username} role={args.role} roots={roots}")
+        return 0
+    if args.action == "delete":
+        if args.username not in data:
+            raise FGError(f"账号 {args.username} 不存在")
+        data.pop(args.username)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"已删除 {args.username}")
+        return 0
+    raise FGError("action 必须是 add|list|delete")
+
+
+def cmd_console(args) -> int:
+    seeds = [Path(r) for r in (args.root or ["."])]
+    roots = _console_discover_roots(seeds)
+    _console_serve(roots, args)
+    return 0
 
 
 # --------------------------------------------------------------------------- #
@@ -3752,6 +5367,21 @@ def cmd_auto(args) -> int:
     if deadline is not None:
         print(f"[auto] deadline {datetime.fromtimestamp(deadline).strftime('%Y-%m-%d %H:%M')} "
               f"({format_time_budget(deadline)})")
+
+    # 空图死锁修复：只有 goal 时，reason 提出的意图会因"必须依赖事实"全部被拒，
+    # 于是永远没有可执行工作。这里自动播种一条起始事实作为落脚点。
+    try:
+        non_goal = [f for f in store.list_facts() if f["id"] != GOAL_ID]
+        if not non_goal:
+            seeded = store.add_fact(
+                description=f"起始情报（自动播种）：{store.load_project().get('goal','')}",
+                creator="auto-seed",
+                title="任务起点",
+                kind="note",
+            )
+            print(f"[auto] seeded start fact {seeded['id']} (graph had only the goal)")
+    except FGError as exc:
+        print(f"[auto] seed skipped: {exc}")
 
     print(f"[auto] start  model={model} max_steps={max_steps} verify={verify}")
     noop_streak = 0
@@ -4551,6 +6181,43 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--port", type=int, default=8765)
     sp.add_argument("--print", action="store_true", help="print the static html to stdout")
     sp.set_defaults(func=cmd_view)
+
+    sp = sub.add_parser(
+        "console-user",
+        help="manage console login accounts (add/list/delete users.json)",
+    )
+    sp.add_argument("action", choices=["add", "list", "delete"])
+    sp.add_argument("username", nargs="?", default=None)
+    sp.add_argument("--file", default=str(Path.home() / ".sapper" / "users.json"))
+    sp.add_argument("--role", choices=["admin", "viewer"], default="admin")
+    sp.add_argument("--roots", default="*", help="允许访问的根目录名，逗号分隔；*=全部")
+    sp.add_argument("--password", default=None, help="不传则交互输入")
+    sp.add_argument("--force", action="store_true")
+    sp.set_defaults(func=cmd_console_user)
+
+    sp = sub.add_parser(
+        "console",
+        help="web control room over a missions root: browse/operate graphs, run auto/dispatch",
+        description=(
+            "Serve the full web console. ROOT holds one mission per subdir "
+            "(<root>/<mission>/.sapper, like bench/sweep). The page can create "
+            "missions, record facts/intents/hints/flags, conclude intents, and "
+            "launch or stop auto/dispatch jobs with live logs. Binds 127.0.0.1 "
+            "by default; write ops require a per-boot token baked into the page."
+        ),
+    )
+    sp.add_argument(
+        "--root", action="append", default=None,
+        help="missions root (one subdir per mission); repeatable. A parent of "
+             "roots also works — sub-roots are auto-discovered and shown together.",
+    )
+    sp.add_argument("--engines", default=None,
+                    help="engines.json for the bench launcher (name/model/sapper_bin list)")
+    sp.add_argument("--users", default=None,
+                    help="users.json（配置后强制登录；未配置=仅本机开发模式）")
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--port", type=int, default=8890)
+    sp.set_defaults(func=cmd_console)
 
 
     sp = sub.add_parser(
