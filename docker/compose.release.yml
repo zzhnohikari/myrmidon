@@ -1,0 +1,47 @@
+# Myrmidon 控制台 —— 离线镜像版编排（交付包使用）
+#
+#   cp .env.example .env        # 填模型网关；没有也能起，登录后在「设置」里配
+#   docker compose -f compose.yml up -d
+#
+# 首次部署先建账号（只需做一次）：
+#   ./deploy.sh                 # 交互式完成：导入镜像 → 建账号 → 启动 → 自检
+#
+# 本文件只使用已导入的镜像，不会触发构建。
+
+services:
+  console:
+    image: myrmidon-console:1.0.0-amd64
+    container_name: myrmidon
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8890:8890"        # 只绑本机；对外请前置 Nginx + HTTPS
+    environment:
+      TZ: Asia/Shanghai
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      BENCHMARK_BASE_URL: ${BENCHMARK_BASE_URL:-}
+      BENCHMARK_TOKEN: ${BENCHMARK_TOKEN:-}
+    volumes:
+      - ./data:/data                 # 任务数据、账号、配置、日志全在这里
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8890/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ---- 可选：容器内拨 VPN（Linux 宿主推荐；macOS 请用 Linux VM）----
+  # vpn:
+  #   image: dperson/openvpn-client:latest
+  #   cap_add: [NET_ADMIN]
+  #   devices: ["/dev/net/tun"]
+  #   volumes: ["./vpn:/vpn:ro"]
+  #   command: -f "" -r 10.0.0.0/8
+  #   restart: unless-stopped
+  #
+  # 启用后给 console 加：network_mode: "service:vpn"
