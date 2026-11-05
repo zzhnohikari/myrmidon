@@ -1,3 +1,11 @@
+> ### 🛡️ [Myrmidon](MYRMIDON.md) — 本仓库的产品化分支
+> 面向交付的安全任务控制台：页面化 WebUI、登录鉴权与客户隔离、多平台适配器、Docker 一键部署。
+> 上手先读 **[MYRMIDON.md](MYRMIDON.md)**（图文介绍 · 快速开始）、
+> **[使用手册](docs/使用手册.md)**、**[交付部署手册](docs/交付部署.md)**。
+> 以下是上游 sapper-v2 的原始说明。
+
+---
+
 # sapper-v2 — The Autonomous Pentest Legion
 
 <p align="center"><img src="docs/assets/banner.jpg" alt="sapper-v2 — the Nüwa Test: the first time an AI ape looked up at the stars (80.18/100 champion)" width="860"></p>
