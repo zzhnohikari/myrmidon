@@ -29,7 +29,7 @@
 ### 方式一：Docker（推荐）
 
 ```bash
-git clone <this-repo> && cd sapper-v2   # 或你的克隆目录
+git clone https://github.com/zzhnohikari/myrmidon.git && cd myrmidon
 
 # 1) 构建控制台镜像（约 1.25GB）
 docker build -f docker/Dockerfile.console -t myrmidon-console:1.0.0 .
@@ -52,8 +52,11 @@ docker run -d --name myrmidon -p 127.0.0.1:8890:8890 -v ./data:/data \
 ### 方式二：本机直接跑（开发）
 
 ```bash
-bash install.sh                     # 安装 sapper CLI（纯标准库）
+bash install.sh                                    # 安装 sapper CLI（纯标准库）
+sapper console-user add admin --password '强密码'    # 首次：建账号 → ~/.sapper/users.json
 sapper console --root ./missions --port 8890
+# 校验鉴权：未登录必须是 401
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8890/api/missions
 ```
 
 ## 文档
