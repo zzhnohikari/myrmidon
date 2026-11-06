@@ -6,3 +6,5 @@ __pycache__
 .sapper
 runs
 fleet.json
+lib/*.bak
+.smoke*/
