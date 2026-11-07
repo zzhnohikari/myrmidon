@@ -1758,7 +1758,13 @@ function renderBench() {
   const box = $("page-bench");
   const runs = S.benches || [];
   const _pf = (S.platform && S.platform.ok) ? S.platform : null;
-  const pRun = _pf ? Math.max(_pf.running || 0, (runs[0] && runs[0].workers ? runs[0].workers.length : 0)) : 0;
+  // 进行中 = 平台标记 running 的题 ∪ 本地 worker 里还没通关的题（去重）
+  const _runSet = new Set();
+  if (_pf) Object.entries(_pf.codes || {}).forEach(([c, st]) => { if (st === "running") _runSet.add(c); });
+  ((runs[0] && runs[0].workers) || []).forEach((c) => {
+    if (!_pf || (_pf.codes || {})[c] !== "done") _runSet.add(c);
+  });
+  const pRun = _pf ? _runSet.size : 0;
   const pPend = _pf ? Math.max(0, (_pf.challenges || 0) - (_pf.completed || 0) - pRun) : 0;
   const plat = S.platform;
   const rows = runs.length ? runs.map((b) => `<tr>
