@@ -4311,6 +4311,13 @@ def _console_serve(roots: list[Path], args) -> int:
 
     def spawn_bench(body: dict) -> dict:
         bench_token, base_url = bench_credentials(body)
+        # 显式传进来的凭据就是这一轮实际在用的，顺手存下来：
+        # 否则「跑分」页的平台数据会一直拿旧 token 去查，报 409/401
+        if (body.get("token") or "").strip():
+            settings_write({"benchmark": {
+                "token": (body.get("token") or "").strip(),
+                "base_url": (body.get("base_url") or "").strip() or base_url,
+            }})
         if not bench_token and (body.get("provider") or "tsecbench") in ("", "tsecbench", "default"):
             raise FGError("还没有 BENCHMARK_TOKEN —— 到「设置 → 任务凭证」保存一次即可，"
                           "之后每个新任务只需在平台拿到 token 后覆盖它")

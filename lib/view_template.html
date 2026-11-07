@@ -920,6 +920,8 @@ function renderOverview() {
   const d = S.overview || {};
   const b = (S.benches || [])[0];
   const recent = (d.recent || S.missions.slice(0, 8)).slice(0, 8);
+  const plat = (S.platform && S.platform.ok) ? S.platform : null;
+  const platTip = plat ? "题目进度来自比赛平台" : ("平台数据暂不可用" + (S.platform && S.platform.error ? "：" + S.platform.error : ""));
   const runCard = b ? `
     <div class="card" style="margin-bottom:14px;border-color:rgba(96,165,250,.35);
       background:linear-gradient(120deg,rgba(37,99,235,.14),var(--surface) 46%)">
@@ -934,12 +936,12 @@ function renderOverview() {
           <button class="btn sm" data-go="bench">查看跑分</button>
         </div>
         <div class="res" style="margin:14px 0 8px">
-          <div><div class="n">${b.completed}<span style="font-size:15px;color:var(--faint)">/${b.total || "?"}</span></div><div class="l">已通过题目</div></div>
-          <div><div class="n">${S.platform ? S.platform.score : "—"}</div><div class="l">平台得分</div></div>
-          <div><div class="n">${S.platform ? S.platform.pending : "—"}</div><div class="l">排队未开始</div></div>
-          <div><div class="n">${Math.round((b.elapsed_s || 0) / 60)}</div><div class="l">已用时（分钟）</div></div>
+          <div><div class="n">${plat ? plat.completed : b.completed}<span style="font-size:15px;color:var(--faint)">/${plat ? plat.challenges : (b.total || "?")}</span></div><div class="l">已通过题目</div></div>
+          <div title="${platTip}"><div class="n">${plat ? (plat.score ?? "—") : "—"}</div><div class="l">平台得分</div></div>
+          <div title="${platTip}"><div class="n">${plat ? (plat.pending ?? "—") : "—"}</div><div class="l">队列中</div></div>
+          <div><div class="n">${Math.round((b.elapsed_s || 0) / 60)}</div><div class="l">已用时 · 分钟</div></div>
         </div>
-        <div class="pbar"><i style="width:${b.total ? Math.round(b.completed / b.total * 100) : 0}%"></i></div>
+        <div class="pbar"><i style="width:${plat ? Math.round((plat.completed / Math.max(1, plat.challenges)) * 100) : (b.total ? Math.round(b.completed / b.total * 100) : 0)}%"></i></div>
       </div>
     </div>` : "";
   const onboard = !S.missions.length ? `
@@ -1755,13 +1757,16 @@ async function startAuto(key, opt) {
 function renderBench() {
   const box = $("page-bench");
   const runs = S.benches || [];
+  const _pf = (S.platform && S.platform.ok) ? S.platform : null;
+  const pRun = _pf ? Math.max(_pf.running || 0, (runs[0] && runs[0].workers ? runs[0].workers.length : 0)) : 0;
+  const pPend = _pf ? Math.max(0, (_pf.challenges || 0) - (_pf.completed || 0) - pRun) : 0;
   const plat = S.platform;
   const rows = runs.length ? runs.map((b) => `<tr>
       <td class="mono">#${b.pid}</td>
       <td><span class="tag info">${esc(b.model || "?")}</span></td>
       <td class="mono">${esc(b.root_name)}</td>
-      <td style="min-width:150px">${b.completed}/${b.total}
-        <div class="pbar" style="margin-top:5px"><i style="width:${b.total ? Math.round(b.completed / b.total * 100) : 0}%"></i></div>
+      <td style="min-width:150px">${plat && plat.ok ? `${plat.completed}/${plat.challenges}` : `${b.completed}/${b.total}`}
+        <div class="pbar" style="margin-top:5px"><i style="width:${plat && plat.ok ? (plat.challenges ? Math.round(plat.completed / plat.challenges * 100) : 0) : (b.total ? Math.round(b.completed / b.total * 100) : 0)}%"></i></div>
         ${b.minutes ? `<div style="font-size:9.5px;color:var(--faint);margin-top:2px">预算 ${Math.round((b.elapsed_s || 0) / 60)}/${b.minutes} 分</div>` : ""}</td>
       <td class="mono">${b.workers && b.workers.length ? b.workers.map(esc).join(" · ") : (b.current || "—")}</td>
       <td class="mono">${Math.round((b.elapsed_s || 0) / 60)} 分</td>
@@ -1791,8 +1796,8 @@ function renderBench() {
       <div class="card-h"><span class="t">题目队列</span><span class="s">共 ${plat.challenges} 题</span><span class="sp"></span>
         <span style="font-size:11px;color:var(--faint)">
           <span style="color:#6ee7b7">●</span> 已通关 ${plat.completed}
-          <span style="color:#fbbf24;margin-left:8px">●</span> 进行中 ${plat.running}
-          <span style="color:#5d6880;margin-left:8px">●</span> 未开始 ${plat.pending}</span></div>
+          <span style="color:#fbbf24;margin-left:8px">●</span> 进行中 ${pRun}
+          <span style="color:#5d6880;margin-left:8px">●</span> 未开始 ${pPend}</span></div>
       <div class="card-b"><div class="pbar" style="margin-bottom:10px"><i style="width:${plat.challenges ? Math.round(plat.completed / plat.challenges * 100) : 0}%"></i></div>
         <div class="queue">${q}</div></div></div>` : ""}
     <div class="card"><div class="card-h"><span class="t">启动新跑分</span>
